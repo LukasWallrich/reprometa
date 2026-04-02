@@ -20,9 +20,11 @@ only the psychology replication pairs \cite{Held2021}. The \texttt{ReproMeta} fu
 then sourced.
 
 ```{r loaddata, message=FALSE}
-library("ReplicationSuccess")
-library("BayesRep")
-library("metafor")
+# library("ReplicationSuccess")
+# library("BayesRep")
+# library("metafor")
+
+library(ReproMeta)
 
 # Load the data from the Reproducibility Project Psychology (RPP) 
 # from ReplicationSuccess.
