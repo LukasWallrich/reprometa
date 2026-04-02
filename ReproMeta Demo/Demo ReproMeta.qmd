@@ -1,0 +1,358 @@
+---
+title: "Demo ReproMeta"
+author: "Rubens Mita"
+format:
+  pdf:
+    cite-method: natbib
+bibliography: ../../bibliography.bib
+---
+
+# Showcasing ReproMeta function and examples
+
+This document serves as a proof-of-concept for the \texttt{ReproMeta} R package through an example on real-world replication data. We apply a selection of quantitative reproducibility metrics to the Reproducibility Project Psychology (RPP) from the \citet{Open_Science_Collaboration2015}, a large-scale replication effort comprising 73 original–replication study pairs from the psychological literature.
+<!-- the Cancer Biology Replication Project, RCT DUPLICATE, etc. -->
+
+## Loading the data and \texttt{ReproMeta}
+
+We begin by loading the required packages and the RPP dataset. The data are 
+accessed via the \texttt{ReplicationSuccess} package and we keep 
+only the psychology replication pairs \cite{Held2021}. The \texttt{ReproMeta} functions are 
+then sourced.
+
+```{r loaddata, message=FALSE}
+library("ReplicationSuccess")
+library("BayesRep")
+library("metafor")
+
+# Load the data from the Reproducibility Project Psychology (RPP) 
+# from ReplicationSuccess.
+data("RProjects")
+df <- RProjects[RProjects$`project` == "Psychology", ]
+
+
+# Now load the functions from ReproMeta
+
+source(file = "../ReproMeta/R/functions_draft.R")
+source(file = "../ReproMeta/R/helper.R")
+```
+
+## Applicability testing
+
+We apply a selection of reproducibility metrics to all 73 replication pairs in the RPP dataset. 
+We selected the following metrics: small telescopes, the JZS Bayes factor, and the sceptical $p$-value.
+
+Because reproducibility is not a single well-defined concept, different metrics address slightly different reproducibility questions \cite{Scoping2025}. Applying multiple metrics jointly allows for a more robust and complete assessment of reproducibility. 
+The \texttt{assess\_replication\_outcome()} function returns a long-format data 
+frame with one row per study per metric, which allows straightforward 
+comparisons across different metrics and study pairs.
+
+```{r}
+# Step 1: prepare
+prepared_data <- prepare_effect_sizes(r_o = df$ro, n_o = df$no,
+                                   r_r = df$rr, n_r = df$nr, 
+                                   logor_o = df$fiso, logor_r = df$fisr, 
+                                   se_o = df$se_fiso, se_r = df$se_fisr,
+                                   n1_o = df$no, n2_o = df$no,
+                                   n1_r = df$nr, n2_r = df$nr,
+                                   effectsize = c(rep("COR", 43), rep("LOGOR", 30)))
+
+# Step 2: assess
+results <- assess_replication_outcome(df = prepared_data,
+                                      metric=c("BF_JZS", "BFr",
+                                               "BFe" , "BFs",
+                                               "snaphybrid"))
+
+# Step 3: extract information needed
+
+# Just the effect sizes
+clean_data <- get_replication_results(results, type = "data")
+
+# Qualitative: who replicated and why
+quali_res <- get_replication_results(results, type = "qualitative")
+
+# Quantitative: the actual p-values / Bayes factors and their type
+quanti_res <- get_replication_results(results, type = "quantitative")
+
+head(clean_data)
+head(quali_res)
+head(quanti_res)
+
+```
+
+The resulting data frame can then easily be tabulated to show the replication outcome for each study pair under each metric (SHOW TABLE EXAMPLE).
+
+
+```{r}
+# One-sided T1E
+alpha <- 0.025 
+
+example_df <- clean_data[clean_data$study_id == 1,]
+es_o <- example_df$es_o[1]
+es_r <- example_df$es_r[1]
+se_o <- example_df$se_o[1]
+se_r <- example_df$se_r[1]
+
+# Calibrated PI
+Z_PI <- ((es_r - es_o) / sqrt(se_o^2 + se_r^2))
+Zcrit_test <- qnorm(1 - alpha^2) > Z_PI
+```
+
+<!-- The `echo: false` option disables the printing of code (only output is displayed). -->
+
+# Calibration in Clustering
+
+Different quantitative metrics answer a different question about replication. Some metrics test if there is evidence for replication success, while other test if there is evidence for replication failure. However it is a common misconception that if metrics answering this question result in a non-significant effect, this must suggest that it is a replication failure. However absence of evidence does not equate to evidence of absence. Therefore the need to complement these metrics with other that check for an opposite result. Only then, if the evidence coming from these different metrics is compatible, then we can talk of replication success (or failure).
+Concluding that an original effect was successfully replicated (or not) requires a "multidimensional metrics something " assessment of the evidence. A single metric on its own is often not sufficient to make any meaningful conclusion about reproducibility. Therefore a selection of metrics (each answering slightly different questions) should be used for the assessment of replication.
+
+We split different metrics in clusters depending on the questions about reproducibility that they are trying to answer. And within each cluster these metrics need to be calibrated to the same level, so that their quantitative value can be interpreted to the same scale and enable comparisons between them. *What about metrics between clusters vs. within clusters?*
+
+## How does the cluster look like / how to differentiate between metrics?
+
+Metrics that test if two independent studies are significant in the same direction.
+Either by combining evidence (Meta-analysis) or simply if they are significant on their own (two-trials rule). Under these metrics we can name: Significance criterion (Two-trials rule), Fixed meta-analysis (Stouffer's method), sceptical p-value, JZS BF, sceptical BF, mean relative effect size, snap hybrid.
+
+Metrics that compare the replication effect to the original effect.
+Under these metrics there is: The confidence interval metrics, Prediction interval, Small telescopes, equality-of-effect Bayes factor, Replication BF, ...(equivalence metrics?)
+
+We claim that metrics should be calibrated within each cluster, but not between the clusters.
+
+## Calibration exercise
+
+Metrics can be grouped depending on which reproducibility question is being asked. And we can calibrate metrics within each "group" so that their quantitative result can be interpreted on the same scale. Interpretation of quantitative values between "clusters" can be difficult and is discouraged, since metrics answering different questions might not interpretable on the same scale, while it is good to compare metrics within clusters.
+
+As an exercise, we simulate $n_\text{sim} = 10^6$ original and replication effect size estimate under the null hypothesis of no effect: $H_0: \hat{\theta}_o = 0$ and $H_0: \hat{\theta}_r = 0$.
+
+```{r}
+# Calibration of various metrics to the overall T1E alpha squared
+library(ReplicationSuccess)
+
+# simulation: ----
+
+alpha <- 0.025
+nsim <- 10^6
+# Under the null hypothesis, both studies have a zero effect
+
+theta_o <- rnorm(nsim, mean = 0, sd = 1)
+theta_r <- rnorm(nsim, mean = 0, sd = 1)
+
+# Calibrate the success rate to alpha^2
+zcrit <- qnorm(1-alpha^2)
+```
+
+The overall T1E for the prediction and confidence interval based metrics is as follows:
+
+```{r}
+## Prediction interval ----
+# Check the success rate that we would have at random: Prediction interval
+success_PI <- zcrit <= (theta_r - theta_o) / sqrt(1^2 + 1^2)
+mean(success_PI)
+
+# Check the success rate that we would have at random: Original effect in Replication Confidence interval
+
+success_CIr <- zcrit <= (theta_o - theta_r) / sqrt(1^2)
+mean(success_CIr)
+
+# Check the success rate that we would have at random: Replication effect in Original Confidence interval
+
+success_CIo <- zcrit <= (theta_r - theta_o) / sqrt(1^2)
+mean(success_CIo)
+```
+
+The overall T1E for the the small telescopes metric is as follows:
+
+```{r}
+## Small telescopes ----
+# Null hypothesis: is the replication study significantly different than 
+# the effect that the original study would have had 33% power to detect
+# H_0: theta_r <= theta_33
+# H_1: theta_r > theta_33
+set.seed(20)
+sapply(c(0, 0.0001, 0.005, 0.0075, 0.01, 0.05, 0.1, 1), function(eps) {
+# Under the null hypothesis, both studies have a zero effect
+theta_33 <- eps*(qnorm(alpha, lower.tail = FALSE) + qnorm(1/3, lower.tail = FALSE)) # eps is equal to sd/sqrt(n_o) -> n_o is the 
+
+
+success_SmallT <- qnorm(1-(alpha^2), mean = 0, sd = 1) <= (theta_r - theta_33) / 1
+return(mean(success_SmallT))
+})
+
+
+# Now calculating for which value of eps does the overall T1E equal alpha squared
+
+smalltelescopes_uniroot <- function(eps, theta_r, alpha = 0.025) {
+  theta_33 <- eps * (qnorm(alpha, lower.tail = FALSE) + qnorm(1/3, lower.tail = FALSE))
+  success_SmallT <- qnorm(1 - alpha^2) <= (theta_r - theta_33)
+  return(mean(success_SmallT) - alpha^2)
+}
+
+result_smalltelescopes <- uniroot(smalltelescopes_uniroot, interval = c(-1, 10), tol = 1e-9, theta_r = theta_r)
+result_smalltelescopes$root
+```
+
+
+This results mean that this metric can only be calibrated at the level $\alpha^2 = 0.000625$ if $\theta_{33}$ is equal to zero. This means that the small telescopes metric it collapses to the prediction interval base metric when trying to calibrate it, which defeats the purpose of the metric. That's why we are arguing to distinguish metrics based on what they are testing, as it does not make sense to calibrate some of them.
+
+For Bayes Factor-based metrics the overall T1E rate depends on the threshold $\gamma$ of the Bayes factor that we set. For the JZS BF:
+
+```{r}
+## BF_JZS ----
+
+set.seed(10)
+theta_o <- rnorm(nsim, mean = 0, sd = 1)
+theta_r <- rnorm(nsim, mean = 0, sd = 1)
+
+# Computes integrand of the likelihood and the Cauchy prior (JZS prior)
+integrate_jzs <- function(theta, es, se){
+  stats::dnorm(x = es, mean = theta, sd = se) *
+    stats::dcauchy(theta, location = 0, scale = 1)
+}
+
+# Divide by marginal likelihood under the null to obtain BF
+compute_bfjzs <- function(es, se) {
+  stats::integrate(integrate_jzs, lower=-Inf, upper=Inf, es=es, se=se)$value /
+    stats::dnorm(x=es, mean=0, sd=se)
+}
+
+BFJZS_ori <- mapply(compute_bfjzs, es = theta_o, se = 1)
+BFJZS_rep <- mapply(compute_bfjzs, es = theta_r, se = 1)
+sapply(c(1, 2, 2.5, 3, 4, 5, 10), function(gamma) {
+  mean(BFJZS_ori > gamma & BFJZS_rep > gamma)
+})
+# miscalibration factor for JZS: when gamma is set to 3, then overall T1E = 0.000266
+# When using the standard threshold for replication success
+
+JZS_uniroot <- function(gamma, alpha = 0.025) {
+  mean(BFJZS_ori > gamma & BFJZS_rep > gamma) - alpha^2
+}
+
+result_BFJZS <- uniroot(JZS_uniroot, interval = c(1, 100), tol = 1e-6)
+result_BFJZS$root
+```
+
+For the equality of effect BF:
+
+```{r}
+## BFe ----
+
+# For this metric we need an heterogeneity factor --> which one should we pick?
+BFe <- BayesRep::BFe(to=theta_o, so=1, tr=theta_r, sr=1, tau=0.3)
+
+sapply(c(1, 2, 2.5, 3, 5, 10, 20, 100), function(gamma){
+  mean(BFe > gamma)
+})
+# For tau = 0.3, the miscalibrated overall T1E is 0
+
+# Which threshold gamma fixes the overall T1E to alpha^2?
+BFe_uniroot <- function(gamma, alpha = 0.025) {
+  mean(BFe > gamma) - alpha^2
+}
+
+result_BFe <- uniroot(BFe_uniroot, interval = c(1, 100), tol = 1e-6)
+result_BFe$root
+
+BFe_1 <- BayesRep::BFe(to=theta_o, so=1, tr=theta_r, sr=1, tau=1)
+
+sapply(c(1, 2, 2.5, 3, 5, 10, 20, 100), function(gamma){
+  mean(BFe_1 > gamma)
+})
+
+# For tau = 1, the miscalibrated overall T1E is 1
+
+# Which threshold gamma fixes the overall T1E to alpha^2?
+BFe_1_uniroot <- function(gamma, alpha = 0.025) {
+  mean(BFe_1 > gamma) - alpha^2
+}
+
+result_BFe_1 <- uniroot(BFe_1_uniroot, interval = c(0.1, 100), tol = 1e-9)
+result_BFe_1$root
+```
+
+For the replication BF:
+
+```{r}
+## BFr ----
+
+
+BFr <- 1 / BayesRep::BFr(to=theta_o, so=1, tr=theta_r, sr=1)
+
+sapply(c(1, 2, 2.5, 3, 5, 10, 20), function(gamma){
+  mean(BFr > gamma)
+})
+# Gamma = 3 miscalibrates overall T1E to 0.029496
+
+
+# Which threshold gamma fixes the overall T1E to alpha^2?
+BFr_uniroot <- function(gamma, alpha = 0.025) {
+  mean(BFr > gamma) - alpha^2
+}
+
+result_BFr <- uniroot(BFr_uniroot, interval = c(1, 100), tol = 1e-6)
+result_BFr$root
+```
+
+For the sceptical BF:
+
+```{r}
+## BFs ----
+
+BFs <- 1 / BayesRep::BFs(to=theta_o, so=1, tr=theta_r, sr=1)
+# Drop spectical BFs that did not converge (NaNs)
+new_BFs <- BFs[!is.na(BFs)]
+
+# Miscalibrated overall T1E value depends on gamma 
+# (the threshold for success in the Bayesian framework)
+sapply(c(1, 2, 2.5, 3, 5, 10, 20), function(gamma){
+  mean(new_BFs > gamma)
+})
+# Miscalibrated BFs overall T1E when gamma=3 is : 0.0002286
+
+
+# Which threshold gamma fixed the overall T1E to alpha^2
+BFs_uniroot <- function(gamma, alpha = 0.025) {
+  mean(new_BFs > gamma) - alpha^2
+}
+
+result_BFs <- uniroot(BFs_uniroot, interval = c(1, 100), tol = 1e-6)
+result_BFs$root
+```
+
+For snapshot hybrid (which can be transformed into a BF):
+
+```{r}
+## snaphybrid ----
+pr_0 <- pr_s <- pr_m <- 0.25
+pr_l <- 1 - (pr_0 + pr_s + pr_m)
+
+effect_labels <- c("null effect", "small effect", "medium effect", "large effect")
+
+snap_results <- mapply(function(es_o, es_r, se_o, se_r) {
+  vals  <- hybrid_snap(es = c(es_o, es_r), se = c(se_o, se_r))
+  probs <- unlist(vals)
+  idx   <- which.max(probs)
+  c(pSnap = unname(probs[idx]), snap_idx = unname(idx))
+}, theta_o, theta_r, 1, 1)
+
+# snap_results: rows = pSnap/snap_idx, cols = studies
+post_Snap <- snap_results[1, ]
+# BF: posterior odds/ prior odds.
+# prior odds: 0.25 / (1-0.25) = 1/3. -> Holds when flat prior on models
+BF_Snap <- (post_Snap / (1 - post_Snap)) * ((1 - 0.25) / 0.25)
+
+# Miscalibrated overall T1E value depends on gamma 
+# (the threshold for success in the Bayesian framework)
+sapply(c(1, 2, 2.5, 3, 5, 10, 20), function(gamma){
+  mean(BF_Snap > gamma)
+})
+# Gamma = 3 miscalibrates the overall T1E rate to 0.097219
+# Which threshold gamma fixed the overall T1E to alpha^2
+BF_Snap_uniroot <- function(gamma, alpha = 0.025) {
+  mean(BF_Snap > gamma) - alpha^2
+}
+
+result_BF_Snap <- uniroot(BF_Snap_uniroot, interval = c(1, 100), tol = 1e-6)
+# BF For flat and equal priors: 4.7622 ideal gamma controlling for overall T1E
+result_BF_Snap$root
+```
+
+
+\newpage

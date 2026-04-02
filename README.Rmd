@@ -1,0 +1,26 @@
+---
+title: "README"
+output: html_document
+---
+
+# ReproMeta
+
+A unified R interface for assessing replication success across multiple 
+statistical frameworks.
+
+## Installation
+```r
+devtools::install_gitlab("your-username/ReproMeta")
+```
+
+## Quick Start
+```r
+library(ReproMeta)
+
+assess_replication_outcome(
+  r_o = 0.35, n_o = 100,
+  r_r = 0.21, n_r = 120,
+  effectsize = "COR",
+  metric = c("significance_r", "pScept", "BFr")
+)
+```

@@ -1,0 +1,18 @@
+Package: ReproMeta
+Type: Package
+Title: Assessment of replication success with quantitative metrics
+Version: 0.1.0
+Authors@R: c(
+    person(
+      "Rubens", "Mita",
+      email = "rubens.mita@uzh.ch",
+      role = c("aut", "cre")
+    )
+  )
+Description: Provides a unified interface for evaluating replication success
+    using multiple statistical metrics, including significance criteria,
+    Bayesian methodology, and the meta-analytical approaches.
+License: What license is it under?
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.3.3
