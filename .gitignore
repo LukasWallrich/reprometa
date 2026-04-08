@@ -7,3 +7,7 @@ reprometa.Rproj
 README.html
 docs/
 Demo-ReproMeta.pdf
+.RData
+.rdx
+.rdb
+ReproMeta Demo/Demo_ReproMeta_cache/
