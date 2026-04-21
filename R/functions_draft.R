@@ -813,31 +813,56 @@ assess_replication_outcome <- function(df, metric) {
     data.frame(outcome=outcome, outcome_detailed=outcome_detailed, quantitative_value = BF_Snap)
   }
 
-  # Q-test ----
+  # Q-test (equivalent to Prediction interval when only one replication study----
 
-  assess_Qtest <- function(df, alpha = 0.025){
-    # Compute Q-statistic (related to Prediction Interval metric)
-    pQtest <- ReplicationSuccess::Qtest(thetao = df$es_o, thetar = df$es_r,
-                                        seo = df$se_o, ser = df$se_r)
-
-    ### Success criterion
-
-    outcome_detailed <- ifelse(pQtest <= alpha,
-                               "Evidence for replication success",
-                               ifelse(pQtest > alpha,
-                                      "No evidence for replication success",
-                                      NA_character_))
-
-    outcome <- ifelse(pQtest <= alpha, "Replication success",
-                      ifelse(pQtest > alpha,  "Replication failure",
-                             NA_character_))
-
-    data.frame(outcome=outcome, outcome_detailed=outcome_detailed, quantitative_value = pQtest)
-  }
+  # assess_Qtest <- function(df, alpha = 0.025){
+  #   # Compute Q-statistic (related to Prediction Interval metric)
+  #   pQtest <- ReplicationSuccess::Qtest(thetao = df$es_o, thetar = df$es_r,
+  #                                       seo = df$se_o, ser = df$se_r)
+  #
+  #   ### Success criterion
+  #
+  #   outcome_detailed <- ifelse(pQtest <= alpha,
+  #                              "Evidence for replication success",
+  #                              ifelse(pQtest > alpha,
+  #                                     "No evidence for replication success",
+  #                                     NA_character_))
+  #
+  #   outcome <- ifelse(pQtest <= alpha, "Replication success",
+  #                     ifelse(pQtest > alpha,  "Replication failure",
+  #                            NA_character_))
+  #
+  #   data.frame(outcome=outcome, outcome_detailed=outcome_detailed, quantitative_value = pQtest)
+  # }
 
   # Likelihood ratio approach
 
-  assess_Likratio <- function(df){
+  assess_Likratio <- function(df, lr = 8){
+    Dtie_res <- Dtie(n_o = n_o, lr = 8, Correction = Qc)
+
+    #
+    LRae_0 <- LR.ae_0(es_r = es_r, Dtie = Dtie_res, n_r = n_r)
+
+    ### Success criterion
+
+    outcome_detailed <- ifelse(LRae_0 >= lr,
+                               "Evidence for replication success",
+                               ifelse(LRae_0 > 1/lr && LRae_0 < lr,
+                                      "Inconclusive evidence",
+                                      ifelse(LRae_0 <= 1/lr,
+                                             "Evidence for replication failure",
+                                             NA_character_)))
+
+
+    outcome <- ifelse(LRae_0 >= lr,
+                      "Evidence for replication success",
+                      ifelse(LRae_0 > 1/lr && LRae_0 < lr,
+                             "Inconclusive evidence",
+                             ifelse(LRae_0 <= 1/lr,
+                                    "Evidence for replication failure",
+                                    NA_character_)))
+
+    data.frame(outcome=outcome, outcome_detailed=outcome_detailed, quantitative_value = LRae_0)
 
   }
 
@@ -855,7 +880,7 @@ assess_replication_outcome <- function(df, metric) {
     BFs              = assess_BFs,
     pScept           = assess_pScept,
     snaphybrid       = assess_snaphybrid,
-    Qtest            = assess_Qtest
+    Likratio         = assess_Likratio
   )
 
   unknown <- setdiff(metric, names(metric_fns))

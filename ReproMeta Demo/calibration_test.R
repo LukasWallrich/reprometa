@@ -18,10 +18,10 @@ se_r <- test_df$se_fisr[1]
 p1 <- 1 - seq(eps, 1-eps, by = eps)
 z1 <- p2z(p1, alternative = "one.sided")
 z2 <- sqrt(2) * qnorm(1-alpha^2) - z1
-p2 <- z2p(z2, alternative = "one.sided") 
+p2 <- z2p(z2, alternative = "one.sided")
 
 plot(p1,p2, type = "l", xlim = c(0,0.25), ylim = c(0,0.25))
-points(x = z2p(es_o / se_o, alternative = "one.sided"), 
+points(x = z2p(es_o / se_o, alternative = "one.sided"),
        y = z2p(es_r / se_r, alternative = "one.sided"))
 
 1-pnorm((es_o / se_o + es_r / se_r) / sqrt(2))
@@ -56,14 +56,14 @@ success_CIo <- zcrit <= (theta_r - theta_o) / sqrt(1^2)
 mean(success_CIo)
 
 ## Small telescopes ----
-# Null hypothesis: is the replication study significantly different than 
+# Null hypothesis: is the replication study significantly different than
 # the effect that the original study would have had 33% power to detect
 # H_0: theta_r <= theta_33
 # H_1: theta_r > theta_33
 set.seed(10)
 sapply(c(0, 0.0001, 0.005, 0.0075, 0.01, 0.05, 0.1, 1), function(eps) {
 # Under the null hypothesis, both studies have a zero effect
-theta_33 <- eps*(qnorm(alpha, lower.tail = FALSE) + qnorm(1/3, lower.tail = FALSE)) # eps is equal to sd/sqrt(n_o) -> n_o is the 
+theta_33 <- eps*(qnorm(alpha, lower.tail = FALSE) + qnorm(1/3, lower.tail = FALSE)) # eps is equal to sd/sqrt(n_o) -> n_o is the
 
 
 success_SmallT <- qnorm(1-(alpha^2), mean = 0, sd = 1) <= (theta_r - theta_33) / 1
@@ -85,7 +85,7 @@ smalltelescopes_uniroot <- function(eps, theta_r, alpha = 0.025) {
 store_mean <- mclapply(1:nrep, function(i) {
   set.seed(i)
   theta_r <- rnorm(nsim)
-  uniroot(smalltelescopes_uniroot, interval = c(-1, 10), 
+  uniroot(smalltelescopes_uniroot, interval = c(-1, 10),
           tol = 1e-9, theta_r = theta_r)$root
 }, mc.cores = n_cores)
 
@@ -94,8 +94,8 @@ sd(unlist(store_mean))
 
 
 
-## For small telescopes the miscalibration depends on theta_33. 
-## When it's equal to zero it converges to alpha^2. When theta_33 goes to 1, overall T1E is zero 
+## For small telescopes the miscalibration depends on theta_33.
+## When it's equal to zero it converges to alpha^2. When theta_33 goes to 1, overall T1E is zero
 
 ## BF_JZS ----
 
@@ -191,7 +191,7 @@ BFs <- 1 / BayesRep::BFs(to=theta_o, so=1, tr=theta_r, sr=1)
 # Drop spectical BFs that did not converge (NaNs)
 new_BFs <- BFs[!is.na(BFs)]
 
-# Miscalibrated overall T1E value depends on gamma 
+# Miscalibrated overall T1E value depends on gamma
 # (the threshold for success in the Bayesian framework)
 sapply(c(1, 2, 2.5, 3, 5, 10, 20), function(gamma){
   mean(new_BFs > gamma)
@@ -227,7 +227,7 @@ post_Snap <- snap_results[1, ]
 # prior odds: 0.25 / (1-0.25) = 1/3. -> Holds when flat prior on models
 BF_Snap <- (post_Snap / (1 - post_Snap)) * ((1 - 0.25) / 0.25)
 
-# Miscalibrated overall T1E value depends on gamma 
+# Miscalibrated overall T1E value depends on gamma
 # (the threshold for success in the Bayesian framework)
 sapply(c(1, 2, 2.5, 3, 5, 10, 20), function(gamma){
   mean(BF_Snap > gamma)
@@ -243,3 +243,24 @@ result_BF_Snap <- uniroot(BF_Snap_uniroot, interval = c(1, 100), tol = 1e-6)
 result_BF_Snap$root
 
 ## equivalence (?) ----
+
+## likelihood ratio
+source("R/helper_likelihoodratio.R")
+Dtie_res <- Dtie(n_o = 20)
+LR <- LR.ae_0(es_r = theta_r, Dtie = Dtie_res, n_r = 20)
+# Miscalibrated overall T1E value depends on gamma
+  # (the threshold for success in the Bayesian framework)
+  sapply(c(1, 2, 2.5, 3, 5, 10, 20), function(thresh){
+    mean(LR > thresh)
+  })
+# Miscalibrated BFs overall T1E when gamma=3 is : 0.0002286
+
+
+# Which threshold gamma fixed the overall T1E to alpha^2
+LR_uniroot <- function(thresh, alpha = 0.025) {
+  mean(LR > thresh) - alpha^2
+}
+
+result_LR <- uniroot(LR_uniroot, interval = c(-910000, 910000), tol = 1e-6)
+result_LR$root
+

@@ -111,7 +111,7 @@ Concluding that an original effect was successfully replicated (or not) requires
 We group replication metrics into families, depending on the specific question about reproducibility that they are designed to answer. Metrics within the same family are conceptually related and aim to capture similar aspects of replication, while metrics from different families address fundamentally different questions. Within each family, metrics can be calibrated to a common scale so that their quantitative values are comparable. In contrast, comparisons across families are generally not meaningful, as the underlying questions differ. *What about metrics between families vs. within families?*
 
 ## How do families differ?
-1. "Same direction evidence". These metrics assess whether the original and replication studies jointly support a non-zero effect.
+"Same direction evidence". These metrics assess whether the original and replication studies jointly support a non-zero effect.
 One family consists of metrics that test whether two independent studies provide evidence for an effect in the same direction. This can be done either by combining evidence (e.g., meta-analysis) or by requiring each study to be significant on its own (e.g., the two-trials rule). Examples of metrics in this family include: the significance criterion (two-trials rule), fixed meta-analysis (Stouffer's method), sceptical p-value, JZS Bayes factor, sceptical Bayes factor, mean relative effect size, and the snapshot hybrid.
 
 Another family consists of metrics that compare the replication effect directly to the original effect "Effect consistency". These metrics assess whether the magnitude of the replication effect is consistent with the original estimate. Examples include confidence interval–based metrics, prediction intervals, small telescopes, the equality-of-effect Bayes factor, and the replication Bayes factor.
@@ -122,6 +122,7 @@ We argue that metrics should be calibrated within each family, but not across fa
 ## Calibration exercise
 
 Metrics can be grouped into families depending on the reproducibility question being asked. Within each family, metrics can be calibrated so that their quantitative results are interpretable on a common scale. Interpretation of values across families is more difficult and generally discouraged, since metrics addressing different questions are not directly comparable.
+However, combining metrics from different families can strengthen the overall assessment of replication by capturing complementary dimensions of reproducibility.
 
 To compare metrics within a cluster, we calibrate them so that they have the same Type I error rate under the null hypothesis of no effect.
 
