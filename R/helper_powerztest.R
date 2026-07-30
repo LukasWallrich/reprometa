@@ -1,4 +1,4 @@
-# This function was copied from the source code of the R package "biostatUZH"
+# This function was borrowed from the source code of the R package "biostatUZH"
 power.z.test <- function (n = NULL,
                           delta = NULL,
                           sd = 1,

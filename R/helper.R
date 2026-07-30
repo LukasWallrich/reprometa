@@ -1,0 +1,400 @@
+
+# -----------------------------------------------------------------------------
+# Helper functions
+# -----------------------------------------------------------------------------
+
+# %||% is only in base R from 4.4.0; define a fallback for older versions
+if (!exists("%||%")) `%||%` <- function(x, y) if (is.null(x)) y else x
+
+
+#' Convert Cohen's d to Point-Biserial correlation
+#'
+#' Converts a standardised mean difference (Cohen's d) to a point-biserial
+#' correlation coefficient using the formula from Cooper et al. (2009). When group
+#' sizes \code{n1} and \code{n2} are provided, the exact correction factor is
+#' used. Otherwise a balanced-groups approximation (a = 4) is assumed.
+#'
+#' @param d Cohen's d effect size.
+#' @param se_d Standard error of Cohen's d. If omitted, only the
+#'   converted effect size is returned.
+#' @param n1 Sample size of group 1 (treatment group). Optional; used together with
+#'   \code{n2} to compute the exact correction factor \code{a}.
+#' @param n2 Sample size of group 2 (placebo group). Optional; used together with
+#'   \code{n1} to compute the exact correction factor \code{a}.
+#'
+#' @returns A named numeric vector. If \code{se_d} is provided, returns
+#'   \code{c("r", "Std. Err.")} containing the converted correlation and its
+#'   delta-method standard error. If \code{se_d} is omitted, returns only
+#'   \code{"r"}.
+#'
+#' @references
+#' Cooper, H., Hedges, L. V., & Valentine, J. C. (Eds.). (2009).
+#' \emph{The Handbook of Research Synthesis and Meta-Analysis} (2nd ed.).
+#' Russell Sage Foundation.
+#'
+#' @export
+#'
+#' @examples
+#' # Without standard error, balanced groups assumed
+#' d_to_r(d = 0.5)
+#'
+#' # With standard error and known group sizes
+#' d_to_r(d = 0.5, se_d = 0.1, n1 = 50, n2 = 50)
+d_to_r <- function(d, se_d, n1=NULL, n2=NULL){
+  # Handle cases where r (correlation) is not specified in the right format
+  stopifnot(!missing(d), is.numeric(d))
+
+  if (!missing(n1) & !missing(n2)){
+    a <- (n1 + n2 - 2)^2 / ((n1)*(n2))
+  } else{
+    a <- 4
+  }
+  # Convert Cohen's d into correlation r
+  r_d <- d / sqrt(d^2 + a)
+
+  if (missing(se_d)){
+    out <- r_d
+    names(out) <- c("r")
+  } else{
+    r_d_se <- sqrt( (a^2 * se_d^2) / (d^2 + a)^3)
+
+    out <- c(r_d, r_d_se)
+    names(out) <- c("r", "Std. Err.")
+
+  }
+  return(out)
+}
+
+#' Convert Correlations to Fisher Z Transformation
+#'
+#' Applies the Fisher Z transformation (inverse-hyperbolic tangent) to a
+#' point-biserial correlation, and propagates its standard error
+#' using the delta method. This function is intended for correlations that
+#' were previously converted from Cohen's d via \code{\link{d_to_r}}, not
+#' for directly observed correlations.
+#'
+#' @param r Correlation coefficient to be transformed. Must be in
+#'   the interval \code{[-1, 1]}.
+#' @param se_r Standard error of the correlation \code{r}. Optional:
+#'   if provided, the delta-method standard error of the Fisher Z transformed
+#'   correlation is also returned.
+#'
+#' @returns A named numeric vector. If \code{se_r} is provided, returns
+#'   \code{c("Fisher Z correlation", "Std. Err.")} containing the transformed
+#'   correlation and its delta-method standard error. If \code{se_r} is
+#'   omitted, returns only \code{"Fisher Z correlation"}.
+#'
+#' @details
+#' The delta method approximation uses the first derivative of \code{atanh(r)},
+#' which is \code{1 / (1 - r^2)}, to propagate the standard error:
+#' \deqn{SE(Z_r) = SE(r) \cdot \frac{1}{1 - r^2}}
+#'
+#' @seealso \code{\link{d_to_r}} for converting Cohen's d to a correlation
+#'   prior to applying this function.
+#'
+#' @export
+#'
+#' @examples
+#' # Without standard error
+#' r_to_zr(r = 0.3)
+#'
+#' # With standard error
+#' r_to_zr(r = 0.3, se_r = 0.05)
+r_to_zr <- function(r, se_r){
+  # Handle cases where the correlation r is not specified in the right format
+  stopifnot(!missing(r), is.numeric(r), (r >= -1 & r <=1))
+
+  # Apply Fisher Z transf. to correlation
+  zr <- atanh(r)
+
+  if (missing(se_r)){
+    out <- zr
+    names(out) <- c("Fisher Z correlation")
+  } else {
+    # Apply delta method for fisher z corr. (1 / (1-x^2) is 1st deriv. of artanh(x))
+    se_zr <- sqrt( se_r^2 * (1/(1-r^2))^2 )
+
+    out <- c(zr, se_zr)
+    names(out) <- c("Fisher Z correlation", "Std. Err.")
+  }
+  return(out)
+}
+
+#' Convert Log Odds Ratio to Cohen's d
+#'
+#' Converts a log odds ratio to a standardised mean difference (Cohen's d)
+#' using the formula from Cooper et al. (2009). Optionally propagates the standard
+#' error.
+#'
+#' @param logor Log odds ratio to be converted.
+#' @param se_logor Standard error of the log odds ratio. Optional:
+#'   if provided, the standard error of the converted Cohen's d is also
+#'   returned.
+#'
+#' @returns A named numeric vector. If \code{se_logor} is provided, returns
+#'   \code{c("Cohen's d", "Std. Err.")} containing the converted effect size
+#'   and its standard error. If \code{se_logor} is omitted, returns only
+#'   \code{"Cohen's d"}.
+#'
+#' @details
+#' The conversion formula is:
+#' \deqn{d = \log(OR) \cdot \frac{\sqrt{3}}{\pi}}
+#' and the standard error propagates as:
+#' \deqn{SE(d) = SE(\log(OR)) \cdot \frac{\sqrt{3}}{\pi}}
+#'
+#' @references
+#' Cooper, H., Hedges, L. V., & Valentine, J. C. (Eds.). (2009).
+#' \emph{The Handbook of Research Synthesis and Meta-Analysis} (2nd ed.).
+#' Russell Sage Foundation.
+#'
+#' @seealso \code{\link{d_to_r}} for subsequently converting Cohen's d to a
+#'   correlation, and \code{\link{r_to_zr}} for applying the Fisher Z
+#'   transformation.
+#'
+#' @export
+#'
+#' @examples
+#' # Without standard error
+#' logor_to_d(logor = 0.5)
+#'
+#' # With standard error
+#' logor_to_d(logor = 0.5, se_logor = 0.1)
+logor_to_d <- function(logor, se_logor){
+  d_or <- logor * sqrt(3) / pi
+
+  if (missing(se_logor)){
+    out <- d_or
+    names(out) <- c("Cohen's d")
+  } else{
+    d_or_se <- sqrt(3) * se_logor / pi
+
+    out <- c(d_or, d_or_se)
+    names(out) <- c("Cohen's d", "Std. Err.")
+  }
+
+  return(out)
+}
+
+#' Convert Fisher Z correlation to two-sided p-value
+#'
+#' Computes a two-sided p-value from a Fisher Z transformed correlation and
+#' its standard error. The function is vectorised and handles \code{NA} values
+#' and invalid standard errors gracefully by returning \code{NA} for those
+#' elements.
+#'
+#' @param zr Fisher Z transformed correlations.
+#' @param se Standard errors of \code{zr}. Must be the same
+#'   length as \code{zr}. Elements with \code{se <= 0} are treated as invalid
+#'   and return \code{NA}.
+#'
+#' @returns A numeric vector of two-sided p-values of the same length as
+#'   \code{zr}.
+#'
+#' @seealso \code{\link{r_to_zr}} for obtaining Fisher Z transformed
+#'   correlations and their standard errors.
+#'
+#' @export
+#'
+#' @examples
+#' # Single value
+#' zr_to_p(zr = 0.3, se = 0.1)
+#'
+#' # Vectorised
+#' zr_to_p(zr = c(0.3, 0.5, NA), se = c(0.1, 0.2, 0.1))
+zr_to_p <- function(zr, se){
+  if (!is.numeric(zr) | !is.numeric(se)) {
+    stop("Both 'zr' and 'se' must be numeric")
+  }
+  if (length(zr) != length(se)) {
+    stop("Length of 'zr' and 'se' must be the same")
+  }
+
+  p_value <- rep(NA, length(zr))
+
+  # Handle valid cases (non-NA, se <= 0)
+  valid_indices <- !(is.na(zr) | is.na(se) | se <= 0)
+
+  if (any(valid_indices)) {
+    z_value <- zr[valid_indices]
+    p_value[valid_indices] <- 2 * stats::pnorm(abs(z_value), sd = se[valid_indices], lower.tail=FALSE)
+  }
+
+  return(p_value)
+}
+
+# Performs fixed effect meta-analysis on one original and one replication study
+compare_effectsizes <- function(es_o, se_o, es_r, se_r) {
+
+  process_pair <- function(es_o, se_o, es_r, se_r) {
+    if (any(is.na(c(es_o, se_o, es_r, se_r))))
+      return(data.frame(
+        est  = NA_real_,
+        ci_lb = NA_real_,
+        ci_ub = NA_real_,
+        QEp  = NA_real_,
+        pval = NA_real_
+      ))
+
+    # # Calculate effect sizes for each study
+    # r1_result <- metafor::escalc(ni = n1, ri = r1, measure = "COR")
+    # r2_result <- metafor::escalc(ni = n2, ri = r2, measure = "COR")
+
+    # Meta-analysis on the two effect sizes
+    res <- metafor::rma(yi = c(es_o, es_r),
+                        sei = c(se_o, se_r),
+                        method = "FE")
+
+    return(data.frame(est = res$beta[1], ci_lb = res$ci.lb, ci_ub = res$ci.ub, QEp = res$QEp, pval = res$pval))
+  }
+
+  results <- mapply(process_pair, es_o, se_o, es_r, se_r, SIMPLIFY = FALSE)
+
+  do.call(rbind, results)
+
+}
+
+# Computes (95%)-CI from Fisher Z Effect Size
+compute_ci <- function(es, se, alpha = 0.025){
+  # Ensure es and se are the same length
+  if (length(es) != length(se)) {
+    stop("The length of 'es' and 'se' must be the same")
+  }
+  # Handle NA/non-finite values directly to avoid warnings
+  valid_indices <- !is.na(es) & !is.na(se) & is.finite(es) & is.finite(se) & se > 0
+  # Initialize vectors to NA
+  z_lower <- z_upper <- rep(NA_real_, length(es))
+
+  if (any(valid_indices)) {
+    # Confidence interval for z (es); subset BOTH sides so lengths match
+    crit <- stats::qnorm(alpha, lower.tail = FALSE)
+    z_lower[valid_indices] <- es[valid_indices] - crit * se[valid_indices]
+    z_upper[valid_indices] <- es[valid_indices] + crit * se[valid_indices]
+  }
+
+  # Return the confidence intervals in a data frame
+  data.frame(es = es, se = se, lower = z_lower, upper = z_upper)
+}
+
+# Back-transform a Fisher-z effect size + SE to the correlation scale ----
+# (delta method: d/dz tanh(z) = 1 - tanh(z)^2)
+fisherz_to_r <- function(z, se_z){
+  r <- tanh(z)
+  list(r = r, se_r = se_z * (1 - r^2))
+}
+
+# Difference test ----
+diff_test <- function(es_o, es_r, se_o, se_r, alpha = 0.05){
+  se    <- sqrt(se_o^2 + se_r^2)
+  delta <- abs(es_r - es_o)
+  p     <- stats::pnorm(delta / se, lower.tail = FALSE)   # one-tailed
+  list(sig = (p <= alpha / 2), pval = 2 * p, delta = delta)
+}
+
+# Equivalence test ----
+equiv_test <- function(es_o, es_r, se_o, se_r, h, alpha = 0.05){
+  se    <- sqrt(se_o^2 + se_r^2)
+  delta <- es_o - es_r
+  z_eq  <- (delta + c(-h, h)) / se
+  p_eq  <- c(stats::pnorm(z_eq[1], lower.tail = TRUE),
+             stats::pnorm(z_eq[2], lower.tail = FALSE))
+  list(sig = all(p_eq <= alpha), pval = max(p_eq), delta = delta)
+}
+
+# Correspondence test ----
+# classification from the joint result of diff_test and equiv_test
+corresp_test <- function(es_o, es_r, se_o, se_r, h, alpha = 0.05){
+  d <- diff_test(es_o, es_r, se_o, se_r, alpha)
+  e <- equiv_test(es_o, es_r, se_o, se_r, h, alpha)
+  res <- ifelse(d$sig,
+                ifelse(e$sig, "Trivial Difference", "Difference"),
+                ifelse(e$sig, "Equivalence", "Indeterminacy"))
+  list(ct = res, p_diff = d$pval, p_equiv = e$pval)
+}
+
+
+# Computes PI from Fisher Z Effect Size. Approach based on "J. M. Schauer and L. V. Hedges (2021)"
+compute_prediction_interval <- function(es_o, se_o, se_r, alpha = 0.025){
+
+  # Standard error for PI
+  se_pi <- sqrt(se_o^2 + se_r^2)
+
+  # Calculate lower and upper Bounds for PI
+  PI_l <- es_o - stats::qnorm(alpha, lower.tail = FALSE) * se_pi
+  PI_u <- es_o + stats::qnorm(alpha, lower.tail = FALSE) * se_pi
+
+  return(list(lower = PI_l, upper = PI_u))
+}
+
+# Finds the effect size that the original study might have detected for a specific power level for small telescopes
+find_z_for_power <- function(power, n1, n2, alpha=0.025){
+  # Author of the metric suggests a 90\% confidence interval (cf. Zwaan)
+  es_power <- pwr::pwr.t2n.test(power = power, n1=n1, n2=n2, sig.level = alpha,
+                                alternative = "greater")
+  return(es_power$d)
+}
+
+
+# Snapshot Hybrid. Code was taken from original authors and readapted for our needs.
+hybrid_snap <- function(es, se, alpha=0.025, sm=0.1, me=0.3, la=0.5) {
+  # Stop if the inputs are not a vector length 2 (original, replication)
+  stopifnot(length(es) == 2, length(se) == 2)
+
+  # Calculate critical value alpha for truncation
+  ycvi <- stats::qnorm(alpha, lower.tail = FALSE) * se
+
+  ### Transform small, medium, and large effect size to Fisher-z
+  fis.sm <- r_to_zr(r = sm)[[1]]
+  fis.me <- r_to_zr(r = me)[[1]]
+  fis.la <- r_to_zr(r = la)[[1]]
+
+  ### Compute probabilities
+  log_f.0 <- (stats::dnorm(es[1],0,se[1], log = TRUE) -
+                stats::pnorm(ycvi[1],0,se[1],lower.tail=FALSE, log.p = TRUE)) +
+    stats::dnorm(es[2],0,se[2], log = TRUE)
+  log_f.sm <- (stats::dnorm(es[1],fis.sm,se[1], log = TRUE) -
+                 stats::pnorm(ycvi[1],fis.sm,se[1], lower.tail=FALSE, log.p = TRUE)) +
+    stats::dnorm(es[2],fis.sm,se[2], log = TRUE)
+  log_f.me <- (stats::dnorm(es[1],fis.me,se[1], log = TRUE) -
+                 stats::pnorm(ycvi[1],fis.me,se[1], lower.tail=FALSE, log.p = TRUE)) +
+    stats::dnorm(es[2],fis.me,se[2], log = TRUE)
+  log_f.la <- (stats::dnorm(es[1],fis.la,se[1], log = TRUE) -
+                 stats::pnorm(ycvi[1],fis.la,se[1], lower.tail=FALSE, log.p = TRUE)) +
+    stats::dnorm(es[2],fis.la,se[2], log = TRUE)
+
+  logs <- c(log_f.0, log_f.sm, log_f.me, log_f.la)
+  if (any(!is.finite(logs))) {
+    return(data.frame(
+      p.0  = NA_real_,
+      p.sm = NA_real_,
+      p.me = NA_real_,
+      p.la = NA_real_
+    ))
+  }
+
+  # Shift by max to avoid overflow/underflow, then normalise
+  m     <- max(logs)
+  probs <- exp(logs - m)
+  probs <- probs / sum(probs)
+
+  return(data.frame(
+    p.0  = probs[1],
+    p.sm = probs[2],
+    p.me = probs[3],
+    p.la = probs[4]
+  ))
+}
+
+#   ## Posterior probabilities of hypotheses
+#
+#   BF.0 <- p.0 / (1 - p.0) * 1 # Posterior odds divided by prior odds
+#   BF.sm <- p.sm / (1 - p.sm) * 1 # Posterior odds divided by prior odds
+#   BF.me <- p.me / (1 - p.me) * 1 # Posterior odds divided by prior odds
+#   BF.la <- p.la / (1 - p.la) * 1 # Posterior odds divided by prior odds
+#
+#   return(data.frame(p.0 = p.0, p.sm = p.sm, p.me = p.me, p.la = p.la))
+#
+# }
+
+
+
+
