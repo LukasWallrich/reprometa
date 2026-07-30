@@ -16,3 +16,6 @@ vignettes/*_files/
 vignettes/*.html
 .pdf
 .positai
+
+public/
+

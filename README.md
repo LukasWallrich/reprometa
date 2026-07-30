@@ -8,7 +8,6 @@
 
 [![Lifecycle:
 experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
-[![R-CMD-check](https://gitlab.uzh.ch/crsuzh/reprometa/actions/workflows/R-CMD-check.yaml/badge.svg)](https://gitlab.uzh.ch/crsuzh/reprometa/actions/workflows/R-CMD-check.yaml)
 <!-- badges: end -->
 
 ***ReproMeta*** provides a unified R interface for assessing replication
