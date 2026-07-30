@@ -3,16 +3,32 @@ Type: Package
 Title: Assessment of replication success with quantitative metrics
 Version: 0.1.0
 Authors@R: c(
-    person(
-      "Rubens", "Mita",
-      email = "rubens.mita@uzh.ch",
-      role = c("aut", "cre")
-    )
+    person(given = "Rubens", 
+           family = "Mita",
+           email = "rubens.mita@uzh.ch",
+           role = c("aut", "cre"))
   )
+Author: Rubens Mita [aut, cre] 
+Maintainer: Rubens Mita <rubens.mita@uzh.ch>
 Description: Provides a unified interface for evaluating replication success
     using multiple statistical metrics, including significance criteria,
-    Bayesian methodology, and the meta-analytical approaches.
+    Bayesian methodology, and meta-analytical approaches.
 License: MIT + file LICENCE
 Encoding: UTF-8
 LazyData: true
 Config/roxygen2/version: 8.0.0
+Imports: 
+    BayesRep,
+    metafor,
+    pwr,
+    ReplicationSuccess,
+    stats
+Suggests:
+    knitr,
+    pkgdown,
+    rmarkdown,
+    testthat (>= 3.0.0)
+URL: https://gitlab.uzh.ch/crsuzh/reprometa, https://crsuzh.pages.uzh.ch/reprometa/
+Config/testthat/edition: 3
+RoxygenNote: 7.3.3
+VignetteBuilder: knitr

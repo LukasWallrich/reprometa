@@ -1,0 +1,10 @@
+pages:
+  image: rocker/tidyverse:latest
+  script:
+    - R -e 'install.packages(c("pkgdown", "pwr", "metafor", "BayesRep", "ReplicationSuccess"))'
+    - R -e 'devtools::document(); pkgdown::build_site()'
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"

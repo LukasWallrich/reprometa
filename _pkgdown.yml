@@ -1,0 +1,41 @@
+url: https://crsuzh.pages.uzh.ch/reprometa/
+destination: public
+template:
+  bootstrap: 5
+
+home:
+  title: ReproMeta
+
+navbar:
+  structure:
+    left: [intro, reference, articles, news]
+    right: [search, github]
+
+articles:
+  - title: Demo
+    navbar: ~
+    contents:
+      - ReproMeta
+
+reference:
+  - title: Main workflow
+    desc: >
+      Core functions for preparing effect sizes and assessing replication
+      success across multiple metrics.
+    contents:
+      - prepare_effect_sizes
+      - assess_replication_outcome
+      - get_replication_results
+
+  - title: Effect-size conversions
+    desc: >
+      Helper functions to convert between effect-size metrics.
+    contents:
+      - d_to_r
+      - logor_to_d
+      - r_to_zr
+      - zr_to_p
+
+  - title: Package
+    contents:
+      - ReproMeta-package

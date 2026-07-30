@@ -1868,26 +1868,26 @@ assess_replication_outcome <- function(df, metric, calibrated=TRUE) {
 #'   scale = "fisherz"
 #' )
 #'
-#' replication_results <- assess_replication_outcome(dat,
+#' replication_results <- assess_replication_outcome(df,
 #'        metric = c("significance_r",
 #'                   "consistency_pi",
 #'                   "BF_JZS"))
 #'
 #' # Extract the replication classifications
 #' get_replication_results(
-#'   assessments,
+#'   replication_results,
 #'   type = "qualitative"
 #' )
 #'
 #' # Extract the metric values
 #' get_replication_results(
-#'   assessments,
+#'   replication_results,
 #'   type = "quantitative"
 #' )
 #'
 #' # Extract the effect sizes used in the analysis
 #' get_replication_results(
-#'   assessments,
+#'   replication_results,
 #'   type = "data"
 #' )
 get_replication_results <- function(x, type = c("qualitative", "quantitative", "data")) {

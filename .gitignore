@@ -11,5 +11,8 @@ Demo-ReproMeta.pdf
 .rdx
 .rdb
 ReproMeta Demo/Demo_ReproMeta_cache/
+vignettes/*_cache/
+vignettes/*_files/
+vignettes/*.html
 .pdf
 .positai
