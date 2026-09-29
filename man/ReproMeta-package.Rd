@@ -19,5 +19,10 @@ Useful links:
 \author{
 \strong{Maintainer}: Rubens Mita \email{rubens.mita@uzh.ch}
 
+Authors:
+\itemize{
+  \item Rubens Mita \email{rubens.mita@uzh.ch}
+}
+
 }
 \keyword{internal}

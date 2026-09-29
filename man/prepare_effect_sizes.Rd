@@ -139,7 +139,7 @@ sign-agreement approximation.}
 A data frame with one row per original–replication pair. It contains
   at least the following columns:
   \describe{
-    \item{`study_id`}{Sequential identifier for the study pair.}
+    \item{`study_id`}{Identifier for the study pair.}
     \item{`effectsize`}{Input effect-size format.}
     \item{`scale`}{Requested analysis scale.}
     \item{`es_o`, `es_r`}{Prepared original and replication effect sizes.}
@@ -184,7 +184,7 @@ dat <- prepare_effect_sizes(
 
 dat
 
-# Retain correlations on their original scale
+# Keep correlations on their original scale
 dat_cor <- prepare_effect_sizes(
   r_o = 0.30,
   n_o = 100,

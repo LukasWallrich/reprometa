@@ -4,7 +4,7 @@
 \alias{assess_replication_outcome}
 \title{assess_replication_outcome: Assess replication success criteria}
 \usage{
-assess_replication_outcome(df, metric, calibrated = TRUE)
+assess_replication_outcome(df, metric, calibrated = TRUE, alpha = 0.025)
 }
 \arguments{
 \item{df}{A data frame containing the prepared original and replication
@@ -51,20 +51,33 @@ to calculate. Available metrics are:
 
 \item{calibrated}{Logical scalar indicating whether calibrated success
 thresholds should be used. The default is `TRUE`. Calibration targets an
-overall type-I error rate of
-\eqn{\alpha^2 = 0.025^2 = 0.000625} for metrics for which a calibrated
-version is implemented. Specifically:
+overall T1E rate of \eqn{\alpha^2} (by default
+\eqn{0.025^2 = 0.000625}) for metrics for which a calibrated version is
+implemented. The thresholds are computed from `alpha` with
+[calibrate_threshold()]:
 \itemize{
   \item `"significance_agg"` uses an unweighted Stouffer combination with
-    a threshold calibrated to \eqn{\alpha^2};
-  \item `"BF_JZS"` uses a Bayes-factor threshold of 2.35;
-  \item `"BFs"` uses a Bayes-factor threshold of 4.08; and
+    threshold \eqn{\sqrt{2} z_{1-\alpha^2}};
+  \item `"BF_JZS"` uses the Bayes-factor threshold
+    `calibrate_threshold("BF_JZS", alpha)` (2.35 for alpha = 0.025);
+  \item `"BFs"` uses the Bayes-factor threshold
+    `calibrate_threshold("BFs", alpha)` (2.81 for alpha = 0.025); and
   \item `"pScept"` uses the controlled rather than the golden
-    recalibration.
+    recalibration at level `alpha`.
 }
-Metrics already calibrated by construction, including the two-trials rule
-and sum-of-p-values criterion, are unaffected. Other metrics retain their
-conventional thresholds.}
+The two-trials rule and the sum-of-p-values criterion need no
+recalibration: at one-sided level `alpha` their overall T1E rate is
+already `alpha^2` (for a pre-specified direction), so they use `alpha`
+whatever the value of `calibrated`. Family 2 metrics and the snapshot
+hybrid are not calibrated and ignore `alpha`: they keep their own fixed
+thresholds (95% intervals, TOST at 0.05, gamma = 1, lr = 8, posterior
+probability 0.75).}
+
+\item{alpha}{One-sided significance level of the Family 1 metrics
+(`"significance_r"`, `"significance_agg"`, `"sum_p"`, `"pScept"`, and,
+when `calibrated = TRUE`, `"BF_JZS"` and `"BFs"`). The overall T1E rate
+targeted by the calibrated versions is `alpha^2`. Default 0.025.
+Family 2 metrics keep their own conventional levels.}
 }
 \value{
 A named list with two data frames:
