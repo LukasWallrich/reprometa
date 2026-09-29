@@ -1,4 +1,3 @@
-
 ###############################################################################
 #############################  ReproMeta  #####################################
 ###############################################################################
@@ -6,13 +5,11 @@ library(ReplicationSuccess)
 library(BayesRep)
 library(metafor)
 
-
 # Main idea: Meta-function taking different effect sizes as input.
 # Correlation, cohen's d, log OR will be converted to transformed Fisher z.
 
 # %||% is only in base R from 4.4.0; define a fallback for older versions
 if (!exists("%||%")) `%||%` <- function(x, y) if (is.null(x)) y else x
-
 
 # Function 1: Effect size conversion ----------------------------------------
 
@@ -113,7 +110,7 @@ if (!exists("%||%")) `%||%` <- function(x, y) if (is.null(x)) y else x
 #' @return A data frame with one row per original–replication pair. It contains
 #'   at least the following columns:
 #'   \describe{
-#'     \item{`study_id`}{Sequential identifier for the study pair.}
+#'     \item{`study_id`}{Identifier for the study pair.}
 #'     \item{`effectsize`}{Input effect-size format.}
 #'     \item{`scale`}{Requested analysis scale.}
 #'     \item{`es_o`, `es_r`}{Prepared original and replication effect sizes.}
@@ -139,7 +136,7 @@ if (!exists("%||%")) `%||%` <- function(x, y) if (is.null(x)) y else x
 #'
 #' dat
 #'
-#' # Retain correlations on their original scale
+#' # Keep correlations on their original scale
 #' dat_cor <- prepare_effect_sizes(
 #'   r_o = 0.30,
 #'   n_o = 100,
@@ -162,26 +159,26 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
                                  # small_telescopes) use them instead of recomputing a CI.
                                  orig_conv_r_lb=NULL, orig_conv_r_ub=NULL,
                                  repli_conv_r_lb=NULL, repli_conv_r_ub=NULL,
-                                 # --- Optional arguments: reported p-values + coding metadata.
-                                 #     orig_p_value is kept only when orig_p_value_type =="exact" (if type is supplied),
-                                 #     doubled when reported one-tailed (if tails is supplied)
-                                 #     with limits to (0,1] if correlation.
-                                 #     These provided p-values are used by sum_p and by pScept via the p2z() route.
+                                 # Optional arguments: reported p-values + coding metadata.
+                                 # orig_p_value is kept only when orig_p_value_type =="exact" (if type is supplied),
+                                 # doubled when reported one-tailed (if tails is supplied)
+                                 # with limits to (0,1] if correlation.
+                                 # These provided p-values are used by sum_p and by pScept via the p2z() route.
                                  orig_p_value=NULL, orig_p_value_type=NULL,
                                  orig_p_value_tails=NULL, repli_p_value=NULL,
-                                 # --- Optional: test-statistic metadata for exact, test-type-dependent SE.
-                                 #     When supplied, se_o/se_r are overwritten: on the cor scale with
-                                 #     sqrt((1-r^2)/df1) for t-type (else /size); on the
-                                 #     fisherz scale with 1/sqrt(n_eff - 3), where n_eff is
-                                 #     the same effective df/size.
+                                 # Optional: test-statistic metadata for exact, test-type-dependent SE.
+                                 # When supplied, se_o/se_r are overwritten: on the cor scale with
+                                 # sqrt((1-r^2)/df1) for t-type (else /size); on the
+                                 # fisherz scale with 1/sqrt(n_eff - 3), where n_eff is
+                                 # the same effective df/size.
                                  stat_type_o=NULL, dof_o=NULL,
                                  effective_df_o=NULL, effective_sample_size_o=NULL,
                                  stat_type_r=NULL, dof_r=NULL,
                                  effective_df_r=NULL, effective_sample_size_r=NULL,
-                                 # --- Optional: qualitative direction/pattern flag.
-                                 #     Used to gate pScept / BFr on the cor scale
-                                 #     Without this argument these metrics fall back to
-                                 #     a sign-match approximation.
+                                 # Optional: qualitative direction/pattern flag.
+                                 # Used to gate pScept / BFr on the cor scale
+                                 # Without this argument these metrics fall back to
+                                 # a sign-match approximation.
                                  pattern_met=NULL) {
 
   scale <- match.arg(scale)
@@ -328,7 +325,7 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
   rownames(df) <- NULL
   df <- df[, colSums(is.na(df)) < nrow(df)]
 
-  # --- Attach precomputed CI bounds on the analysis scale ---------------------
+  # Attach precomputed CI bounds on the analysis scale ----
   # Input bounds are on the correlation scale
   # scale="cor"    -> attached raw
   # scale="fisherz"-> atanh()-transformed (bounds clamped just inside (-1,1) so
@@ -350,7 +347,7 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
     }
   }
 
-  # --- Attach standardized p-values (scale-free) ------------------------------
+  #  Attach standardized p-values (scale-free) ----
   #  only "exact"-type original p-values are usable (if type metadata supplied)
   #  one-tailed original p-values are doubled to two-tailed (if tails supplied)
   #  clamped to (0,1] so ReplicationSuccess::p2z() accepts them
@@ -370,7 +367,7 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
     df$repli_p_value <- pmin(pmax(repli_p_value, 1e-10), 1)
   }
 
-  # --- Attach qualitative direction/pattern flag ------------------------------
+  # Attach qualitative direction/pattern flag ----
   if (!is.null(pattern_met)) {
     df$repli_pattern_criteria_met <- pattern_met
   }
@@ -378,7 +375,7 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
   return(df)
 }
 
-# Function 2: Assess replication success criteria ----------------------------
+# Function 2: Assess replication success criteria ----
 
 #' assess_replication_outcome: Assess replication success criteria
 #'
@@ -427,20 +424,32 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
 #'   }
 #' @param calibrated Logical scalar indicating whether calibrated success
 #'   thresholds should be used. The default is `TRUE`. Calibration targets an
-#'   overall type-I error rate of
-#'   \eqn{\alpha^2 = 0.025^2 = 0.000625} for metrics for which a calibrated
-#'   version is implemented. Specifically:
+#'   overall T1E rate of \eqn{\alpha^2} (by default
+#'   \eqn{0.025^2 = 0.000625}) for metrics for which a calibrated version is
+#'   implemented. The thresholds are computed from `alpha` with
+#'   [calibrate_threshold()]:
 #'   \itemize{
 #'     \item `"significance_agg"` uses an unweighted Stouffer combination with
-#'       a threshold calibrated to \eqn{\alpha^2};
-#'     \item `"BF_JZS"` uses a Bayes-factor threshold of 2.35;
-#'     \item `"BFs"` uses a Bayes-factor threshold of 4.08; and
+#'       threshold \eqn{\sqrt{2} z_{1-\alpha^2}};
+#'     \item `"BF_JZS"` uses the Bayes-factor threshold
+#'       `calibrate_threshold("BF_JZS", alpha)` (2.35 for alpha = 0.025);
+#'     \item `"BFs"` uses the Bayes-factor threshold
+#'       `calibrate_threshold("BFs", alpha)` (2.81 for alpha = 0.025); and
 #'     \item `"pScept"` uses the controlled rather than the golden
-#'       recalibration.
+#'       recalibration at level `alpha`.
 #'   }
-#'   Metrics already calibrated by construction, including the two-trials rule
-#'   and sum-of-p-values criterion, are unaffected. Other metrics retain their
-#'   conventional thresholds.
+#'   The two-trials rule and the sum-of-p-values criterion need no
+#'   recalibration: at one-sided level `alpha` their overall T1E rate is
+#'   already `alpha^2` (for a pre-specified direction), so they use `alpha`
+#'   whatever the value of `calibrated`. Family 2 metrics and the snapshot
+#'   hybrid are not calibrated and ignore `alpha`: they keep their own fixed
+#'   thresholds (95% intervals, TOST at 0.05, gamma = 1, lr = 8, posterior
+#'   probability 0.75).
+#' @param alpha One-sided significance level of the Family 1 metrics
+#'   (`"significance_r"`, `"significance_agg"`, `"sum_p"`, `"pScept"`, and,
+#'   when `calibrated = TRUE`, `"BF_JZS"` and `"BFs"`). The overall T1E rate
+#'   targeted by the calibrated versions is `alpha^2`. Default 0.025.
+#'   Family 2 metrics keep their own conventional levels.
 #'
 #' @details
 #' Each selected metric is applied separately to every original-replication
@@ -512,19 +521,23 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
 #'   ),
 #'   calibrated = TRUE
 #' )
-assess_replication_outcome <- function(df, metric, calibrated=TRUE) {
+assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.025) {
 
-  # `calibrated = TRUE` switches the metrics whose conventional thresholds do
-  # NOT control the overall type-I error rate at alpha^2 = 0.025^2 = 0.000625
-  # over to calibrated versions:
-  #   BF_JZS  : gamma 1 -> 2.35
-  #   BFs     : gamma 1 -> 4.08
-  #   pScept  : golden -> controlled recalibration
+  # `calibrated = TRUE` switches conventional thresholds that do NOT control 
+  # the overall T1E rate at alpha^2 (default 0.025^2)
+  # over to calibrated versions, with thresholds computed from `alpha` by
+  # calibrate_threshold():
+  #   BF_JZS  : gamma 1 -> calibrate_threshold("BF_JZS", alpha)  (2.35 at 0.025)
+  #   BFs     : gamma 1 -> calibrate_threshold("BFs", alpha)     (2.81 at 0.025)
+  #   pScept  : golden -> controlled recalibration at level alpha
   #   meta    : fixed-effect pooling -> unweighted Stouffer at sqrt(2)*z_{1-alpha^2}
-  # Metrics already calibrated at alpha^2 by construction (two-trials rule,
-  # sum of p-values) are unaffected.
+  # Metrics already calibrated at the alpha^2 (two-trials rule,
+  # sum of p-values) use `alpha` directly.
 
   stopifnot(is.logical(calibrated), length(calibrated) == 1)
+  stopifnot(is.numeric(alpha), length(alpha) == 1, is.finite(alpha),
+            alpha > 0, alpha < 0.5)
+  alpha_level <- alpha    # one-sided level of the Family 1 metrics
 
   stopifnot(is.data.frame(df), is.character(metric))
   stopifnot(all(c("es_o", "se_o", "es_r", "se_r", "study_id") %in% names(df)))
@@ -535,13 +548,13 @@ assess_replication_outcome <- function(df, metric, calibrated=TRUE) {
 
 
   # Significance criterion (vote counting) ----
-  assess_rep_significance <- function(df, alpha = 0.025) {
+  assess_rep_significance <- function(df, alpha = alpha_level) {
 
     # Sidedness follows the analysis scale:
-    #  * fisherz -> ONE-SIDED p in the direction of the estimate, compared to
-    #    alpha (original implementation).
-    #  * cor     -> TWO-SIDED p compared to 2*alpha (numerically the same
-    #    decision when combined with the same-direction requirement below)
+    #  fisherz -> ONE-SIDED p in the direction of the estimate, compared to
+    #  alpha (original implementation).
+    #  cor     -> TWO-SIDED p compared to 2*alpha (numerically the same
+    #  decision when combined with the same-direction requirement below)
     if (unique(df$scale) == "cor") {
       p_o <- 2 * pnorm(abs(df$es_o / df$se_o), lower.tail = FALSE)
       p_r <- 2 * pnorm(abs(df$es_r / df$se_r), lower.tail = FALSE)
@@ -574,10 +587,10 @@ assess_replication_outcome <- function(df, metric, calibrated=TRUE) {
 
 
   # Fixed Meta-Analysis (aggregating one original and one replication) ----
-  assess_agg_significance <- function(df, alpha = 0.025) {
+  assess_agg_significance <- function(df, alpha = alpha_level) {
 
     if (calibrated) {
-      # --- CALIBRATED: unweighted Stouffer, exact overall T1E at alpha^2 -----
+      # CALIBRATED: unweighted Stouffer, exact overall T1E at alpha^2 ----
 
       z_o <- df$es_o / df$se_o
       z_r <- df$es_r / df$se_r
@@ -586,7 +599,7 @@ assess_replication_outcome <- function(df, metric, calibrated=TRUE) {
       z_r <- z_r * flip
 
       z_sum  <- z_o + z_r
-      thresh <- sqrt(2) * stats::qnorm(1 - alpha^2)
+      thresh <- calibrate_threshold("significance_agg", alpha = alpha)
       p_meta <- stats::pnorm(z_sum / sqrt(2), lower.tail = FALSE)   # combined one-sided p
 
       success <- !is.na(z_sum) & is.finite(z_sum) & (z_sum >= thresh)
@@ -603,8 +616,10 @@ assess_replication_outcome <- function(df, metric, calibrated=TRUE) {
     }
 
 
-    # Calculates the pooled effect estimate and CI lower/upper bound
-    effect_comparison <- compare_effectsizes(df$es_o, df$se_o, df$es_r, df$se_r)
+    # Calculates the pooled effect estimate and the (1 - 2 alpha) CI
+    # (95% CI for the default alpha = 0.025)
+    effect_comparison <- compare_effectsizes(df$es_o, df$se_o, df$es_r, df$se_r,
+                                             level = (1 - 2*alpha)*100)
 
     ### Calculate p-value for this metric
     p_meta <- effect_comparison$pval
@@ -635,7 +650,8 @@ assess_replication_outcome <- function(df, metric, calibrated=TRUE) {
 
   # Sum of $p$-values ----
 
-  assess_sum_p <- function(df, alpha = 0.025, threshold = 0.025*sqrt(2)){
+  assess_sum_p <- function(df, alpha = alpha_level,
+                           threshold = calibrate_threshold("sum_p", alpha = alpha)){
 
     if ("orig_p_value"  %in% names(df)){
       p_o <- df$orig_p_value
@@ -857,7 +873,7 @@ assess_replication_outcome <- function(df, metric, calibrated=TRUE) {
       quant_val <- small_effect
 
     } else {
-      # --- existing Fisher-z / probabilistic path, unchanged ---
+      # existing Fisher-z / probabilistic path, unchanged ---
       es_with_33power <- mapply(function(effectsize, n1, n2, n) {
         if (effectsize %in% c("SMD", "LOGOR")) {
           if (is.na(n1) || is.na(n2)) return(NA_real_)
@@ -887,8 +903,8 @@ assess_replication_outcome <- function(df, metric, calibrated=TRUE) {
   # JZS Bayes Factor ----
   assess_BFJZS <- function(df, gamma = 1){
 
-    # Calibrated threshold: gamma = 2.35 gives overall T1E = alpha^2
-    if (calibrated) gamma <- 2.35
+    # Calibrated threshold with overall T1E = alpha^2 (2.35 for alpha = 0.025)
+    if (calibrated) gamma <- calibrate_threshold("BF_JZS", alpha = alpha_level)
 
     # Computes integrand of the likelihood and the Cauchy prior (JZS prior)
     integrate_jzs <- function(theta, es, se){
@@ -1034,8 +1050,9 @@ assess_replication_outcome <- function(df, metric, calibrated=TRUE) {
 
   assess_BFs <- function(df, gamma = 1){
 
-    # Calibrated threshold: gamma = 4.08 gives overall T1E = alpha^2
-    if (calibrated) gamma <- 4.08
+    # Calibrated threshold with overall T1E = alpha^2 (2.81 for alpha = 0.025);
+    # pairs without a sceptical Bayes factor (NaN) count as non-successes
+    if (calibrated) gamma <- calibrate_threshold("BFs", alpha = alpha_level)
 
     compute_BFs <- function(to, so, tr, sr){
       if(any(is.na(c(to, so, tr, sr))) ||
@@ -1074,13 +1091,13 @@ assess_replication_outcome <- function(df, metric, calibrated=TRUE) {
 
   # Sceptical p-value ----
 
-  assess_pScept <- function(df, alpha = 0.025){
+  assess_pScept <- function(df, alpha = alpha_level){
 
     # Sidedness follows the analysis scale:
     #  * scale == "cor"     -> TWO-SIDED: z's from the reported
-    #    p-values via p2z(), threshold levelSceptical(0.05, "two.sided",
-    #    "golden") = 0.1234 (hardcoded 0.05 to match repli_binary.R, which
-    #    calls it that way independent of any general alpha), success gated
+    #    p-values via p2z(), threshold levelSceptical(2 * alpha, "two.sided",
+    #    "golden") = 0.1234 for alpha = 0.025 (repli_binary.R uses 0.05),
+    #    success gated
     #    by the qualitative pattern flag (two.sided pSceptical doesn't check
     #    direction itself).
     #  * scale == "fisherz" -> ONE-SIDED, original implementation: z's from
@@ -1163,7 +1180,7 @@ assess_replication_outcome <- function(df, metric, calibrated=TRUE) {
       skep_level <- if (calibrated) {
         controlled_level(n_r_resolved / n_o_resolved, alt = "one.sided")
       } else {
-        ReplicationSuccess::levelSceptical(level = 0.05,
+        ReplicationSuccess::levelSceptical(level = 2 * alpha,
                                            alternative = "two.sided",
                                            type = "golden")
       }
@@ -1918,4 +1935,3 @@ get_replication_results <- function(x, type = c("qualitative", "quantitative", "
     return(x$results[, c("study_id", interleaved)])
   }
 }
-

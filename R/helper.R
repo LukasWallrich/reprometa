@@ -397,4 +397,169 @@ hybrid_snap <- function(es, se, alpha=0.025, sm=0.1, me=0.3, la=0.5) {
 
 
 
+# Calibrated success thresholds for Family 1 metrics ----
+
+#' calibrate_threshold: Success thresholds with overall T1E rate \eqn{\alpha^2}
+#'
+#' Computes, for a one-sided level \eqn{\alpha}, the success threshold of a
+#' Family 1 metric such that the overall T1E rate (both the original
+#' and the replication effect equal to zero, the intersection null) is
+#' \eqn{\alpha^2}. These are the thresholds used by
+#' [assess_replication_outcome()] when `calibrated = TRUE`, so success rates
+#' can be recalibrated at every value of \eqn{\alpha}.
+#'
+#' @param metric One of `"significance_agg"`, `"sum_p"`, `"BF_JZS"` or `"BFs"`.
+#' @param alpha Numeric vector of one-sided levels in (0, 0.5). Default 0.025.
+#' @param c Variance ratio \eqn{\sigma_o^2 / \sigma_r^2} used for the
+#'   `"BFs"` calibration. Default 1 (equal precision).
+#'
+#' @details
+#' \describe{
+#'   \item{`"significance_agg"`}{Threshold for the unweighted Stouffer sum
+#'     \eqn{z_o + z_r}: \eqn{\sqrt{2} z_{1-\alpha^2}}.}
+#'   \item{`"sum_p"`}{Threshold for the sum of the two one-sided p-values:
+#'     \eqn{\alpha \sqrt{2}}, since \eqn{P(p_o + p_r \le s) = s^2 / 2}.}
+#'   \item{`"BF_JZS"`}{Threshold \eqn{\gamma} such that
+#'     \eqn{P(BF_o > \gamma) P(BF_r > \gamma) = \alpha^2} under the null
+#'     hypothesis with standard errors equal to one. Because the Bayes factor
+#'     is symmetric in \eqn{z} and increases with \eqn{|z|}, this holds when
+#'     \eqn{P(|z| > z_\gamma) = \alpha}, i.e. \eqn{z_\gamma = z_{1-\alpha/2}},
+#'     so \eqn{\gamma} is the JZS Bayes factor at \eqn{z_{1-\alpha/2}}
+#'     (one numerical integral, no root finding).}
+#'   \item{`"BFs"`}{Threshold \eqn{\gamma} for the inverted sceptical Bayes
+#'     factor such that \eqn{P(1/BF_S > \gamma) = \alpha^2} over all study
+#'     pairs; pairs for which the sceptical Bayes factor does not exist count
+#'     as non-successes, as in [assess_replication_outcome()]. For a given
+#'     \eqn{z_o} the success region in \eqn{z_r} is available in closed form
+#'     (Pawel and Held, 2022), so the T1E is a one-dimensional
+#'     integral and \eqn{\gamma} is found by root finding, without simulation.}
+#' }
+#' Results are cached, so repeated calls with the same arguments are fast.
+#'
+#' @return Numeric vector of thresholds, one per value of `alpha`.
+#'
+#' @references
+#' Pawel, S., & Held, L. (2022). The sceptical Bayes factor for the
+#' assessment of replication success. \emph{Journal of the Royal Statistical
+#' Society: Series B}, \bold{84}, 879-911.
+#'
+#' @export
+#'
+#' @examples
+#' calibrate_threshold("BF_JZS", alpha = 0.025)             # 2.35
+#' calibrate_threshold("BFs", alpha = c(0.01, 0.025, 0.05)) # 4.38 2.81 1.98
+calibrate_threshold <- function(metric = c("significance_agg", "sum_p", "BF_JZS", "BFs"),
+                                alpha = 0.025, c = 1) {
+  metric <- match.arg(metric)
+  stopifnot(is.numeric(alpha), length(alpha) >= 1, all(is.finite(alpha)),
+            all(alpha > 0 & alpha < 0.5),
+            is.numeric(c), length(c) == 1, is.finite(c), c > 0)
+
+  key <- function(...) paste(..., sep = "|")
+  switch(metric,
+         significance_agg = sqrt(2) * stats::qnorm(1 - alpha^2),
+         sum_p            = alpha * sqrt(2),
+         BF_JZS = vapply(alpha, function(a)
+           .cal_cached(key("BF_JZS", sprintf("%.17g", a)), .calibrate_bfjzs(a)), numeric(1)),
+         BFs    = vapply(alpha, function(a)
+           .cal_cached(key("BFs", sprintf("%.17g", c), sprintf("%.17g", a)),
+                       .calibrate_bfs(a, c)), numeric(1))
+  )
+}
+
+# internal helpers for calibrate_threshold() ----
+
+.cal_cache <- new.env(parent = emptyenv())
+
+# `expr` is only evaluated when the key is not cached yet
+.cal_cached <- function(key, expr) {
+  if (!exists(key, envir = .cal_cache, inherits = FALSE))
+    assign(key, expr, envir = .cal_cache)
+  get(key, envir = .cal_cache, inherits = FALSE)
+}
+
+# JZS Bayes factor (Cauchy(0, 1) prior) for an estimate z with standard error 1
+.bfjzs_unit <- function(z) {
+  stats::integrate(function(theta) stats::dnorm(z, theta, 1) * stats::dcauchy(theta, 0, 1),
+                   lower = -Inf, upper = Inf, rel.tol = 1e-10)$value /
+    stats::dnorm(z, 0, 1)
+}
+
+# P(BF_o > gamma) = P(BF_r > gamma) = alpha  <=>  gamma = BF(z_{1 - alpha/2})
+.calibrate_bfjzs <- function(alpha) .bfjzs_unit(stats::qnorm(1 - alpha / 2))
+
+# log Bayes factors of BayesRep::BFo() and BayesRep::BFr() (z-scale versions)
+.bfs_logBFo <- function(zo, g) {
+  stats::dnorm(zo, 0, 1, log = TRUE) - stats::dnorm(zo, 0, sqrt(1 + g), log = TRUE)
+}
+.bfs_logBFr <- function(zo, zr, c, g) {
+  stats::dnorm(zr, 0, sqrt(1 + c * g), log = TRUE) -
+    stats::dnorm(zr, zo * sqrt(c), sqrt(1 + c), log = TRUE)
+}
+
+# P(1 / BFs > gamma | zo) under H0 (zr ~ N(0, 1)), vectorised over zo.
+# Success at level gamma: the original is convincing enough (minimal BFo below
+# 1/gamma) and the replication BF of the sceptical prior with BFo = 1/gamma
+# (closed form via the Lambert W function) against the advocacy prior is below
+# 1/gamma, which is a quadratic inequality in zr.
+.bfs_success_given_zo <- function(zo, gamma, c = 1) {
+  out <- numeric(length(zo))
+  lg  <- log(gamma)
+  z2  <- zo^2
+  ok  <- z2 > 1 & .bfs_logBFo(zo, pmax(z2 - 1, 0)) < -lg
+  if (!any(ok)) return(out)
+  zz <- z2[ok]
+  K  <- zz - 2 * lg - log(zz)
+  g  <- zz / (-lamW::lambertWm1(-exp(-K))) - 1     # sceptical relative prior variance
+  v0 <- 1 + c * g
+  v1 <- 1 + c
+  m  <- sqrt(zz * c)
+  A  <- 1 / v1 - 1 / v0
+  B  <- -2 * m / v1
+  C  <- m^2 / v1 + log(v1 / v0) + 2 * lg          # success: A zr^2 + B zr + C < 0
+  p    <- numeric(length(A))
+  lin  <- abs(A) < 1e-12
+  disc <- B^2 - 4 * A * C
+  sq   <- sqrt(pmax(disc, 0))
+  r1 <- (-B - sq) / (2 * A)
+  r2 <- (-B + sq) / (2 * A)
+  lo <- pmin(r1, r2)
+  hi <- pmax(r1, r2)
+  i <- !lin & A > 0 & disc > 0
+  p[i] <- stats::pnorm(lo[i], lower.tail = FALSE) - stats::pnorm(hi[i], lower.tail = FALSE)
+  i <- !lin & A < 0 & disc <= 0
+  p[i] <- 1
+  i <- !lin & A < 0 & disc > 0
+  p[i] <- stats::pnorm(lo[i]) + stats::pnorm(hi[i], lower.tail = FALSE)
+  i <- lin
+  p[i] <- ifelse(B[i] < 0, stats::pnorm(-C[i] / B[i], lower.tail = FALSE),
+                 stats::pnorm(-C[i] / B[i]))
+  out[ok] <- p
+  out
+}
+
+# Overall P(1 / BFs > gamma) under H0 over all pairs, both directions
+.bfs_success_prob <- function(gamma, c = 1) {
+  lg   <- log(gamma)
+  zmin <- stats::uniroot(function(z) .bfs_logBFo(z, z^2 - 1) + lg,
+                         c(1 + 1e-9, 60), tol = 1e-12)$root
+  2 * stats::integrate(function(z) stats::dnorm(z) * .bfs_success_given_zo(z, gamma, c),
+                       lower = zmin, upper = max(zmin + 1, 20), rel.tol = 1e-9)$value
+}
+
+# Root finding on log(gamma): the T1E rate decreases in gamma, each
+# evaluation is one integral (a few milliseconds)
+.calibrate_bfs <- function(alpha, c = 1) {
+  target <- alpha^2
+  f  <- function(lg) log(.bfs_success_prob(exp(lg), c)) - log(target)
+  lo <- log(1.001)
+  hi <- log(1e5)
+  if (f(lo) < 0 || f(hi) > 0) {
+    warning("No sceptical Bayes factor threshold gives the target T1E rate ",
+            "for alpha = ", alpha, "; returning NA.")
+    return(NA_real_)
+  }
+  exp(stats::uniroot(f, c(lo, hi), tol = 1e-10)$root)
+}
+
 
