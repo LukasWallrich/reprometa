@@ -1,4 +1,3 @@
-
 # -----------------------------------------------------------------------------
 # Helper functions
 # -----------------------------------------------------------------------------
@@ -223,7 +222,8 @@ zr_to_p <- function(zr, se){
 }
 
 # Performs fixed effect meta-analysis on one original and one replication study
-compare_effectsizes <- function(es_o, se_o, es_r, se_r) {
+# `level`: confidence level (in %) of the pooled CI, passed to metafor::rma()
+compare_effectsizes <- function(es_o, se_o, es_r, se_r, level = 95) {
 
   process_pair <- function(es_o, se_o, es_r, se_r) {
     if (any(is.na(c(es_o, se_o, es_r, se_r))))
@@ -242,7 +242,8 @@ compare_effectsizes <- function(es_o, se_o, es_r, se_r) {
     # Meta-analysis on the two effect sizes
     res <- metafor::rma(yi = c(es_o, es_r),
                         sei = c(se_o, se_r),
-                        method = "FE")
+                        method = "FE",
+                        level = level)
 
     return(data.frame(est = res$beta[1], ci_lb = res$ci.lb, ci_ub = res$ci.ub, QEp = res$QEp, pval = res$pval))
   }
@@ -561,5 +562,3 @@ calibrate_threshold <- function(metric = c("significance_agg", "sum_p", "BF_JZS"
   }
   exp(stats::uniroot(f, c(lo, hi), tol = 1e-10)$root)
 }
-
-

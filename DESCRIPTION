@@ -1,7 +1,7 @@
 Package: ReproMeta
 Type: Package
 Title: Assessment of replication success with quantitative metrics
-Version: 0.1.0
+Version: 0.1.1
 Authors@R: c(
     person(given = "Rubens", 
            family = "Mita",
