@@ -4,7 +4,13 @@
 \alias{assess_replication_outcome}
 \title{assess_replication_outcome: Assess replication success criteria}
 \usage{
-assess_replication_outcome(df, metric, calibrated = TRUE, alpha = 0.025)
+assess_replication_outcome(
+  df,
+  metric,
+  calibrated = TRUE,
+  alpha = 0.025,
+  metric_args = NULL
+)
 }
 \arguments{
 \item{df}{A data frame containing the prepared original and replication
@@ -69,15 +75,53 @@ The two-trials rule and the sum-of-p-values criterion need no
 recalibration: at one-sided level `alpha` their overall T1E rate is
 already `alpha^2` (for a pre-specified direction), so they use `alpha`
 whatever the value of `calibrated`. Family 2 metrics and the snapshot
-hybrid are not calibrated and ignore `alpha`: they keep their own fixed
+hybrid are not calibrated and ignore `alpha`: they keep their own
 thresholds (95% intervals, TOST at 0.05, gamma = 1, lr = 8, posterior
-probability 0.75).}
+probability 0.75), which can be changed with `metric_args`.}
 
 \item{alpha}{One-sided significance level of the Family 1 metrics
 (`"significance_r"`, `"significance_agg"`, `"sum_p"`, `"pScept"`, and,
 when `calibrated = TRUE`, `"BF_JZS"` and `"BFs"`). The overall T1E rate
 targeted by the calibrated versions is `alpha^2`. Default 0.025.
 Family 2 metrics keep their own conventional levels.}
+
+\item{metric_args}{Optional named list with one element per metric, each a
+named list of arguments that replace that metric's defaults, e.g.
+`list(BFe = list(gamma = 3), consistency_pi = list(alpha = 0.05))`.
+`NULL` (default) uses the defaults everywhere. The available arguments
+are:
+\describe{
+  \item{`consistency_cir`, `consistency_cio`, `consistency_pi`}{`alpha`:
+    one-sided level, the interval is the (1 - 2 `alpha`) interval
+    (default 0.025, i.e. 95%). Reported confidence limits (correlation
+    scale, or `es_lb_*`/`es_ub_*` on the Fisher-z scale) are rescaled
+    on the Fisher-z scale around the point estimate when `alpha`
+    differs from 0.025.}
+  \item{`small_telescopes`}{`alpha`: level of the test against the
+    benchmark effect (default 0.025; reported limits are rescaled as
+    above); `alpha_benchmark`: level used to define the effect with
+    33 percent power in the original study (default `alpha`); `power`
+    (default 1/3).}
+  \item{`BF_JZS`, `BFs`}{`gamma`: evidence threshold. A value given
+    here replaces the calibrated threshold.}
+  \item{`BFr`}{`gamma` (default 1).}
+  \item{`BFe`}{`gamma` (default 1), `tau` (prior standard deviation,
+    default 0.2).}
+  \item{`snaphybrid`}{`threshold`: posterior probability the winning
+    model must exceed (default 0.75); prior probabilities `pr_0`,
+    `pr_s`, `pr_m` (default 0.25 each).}
+  \item{`Likratio`}{`lr`: evidence threshold (default 8); `lr_dtie`:
+    likelihood ratio that defines the theoretically interesting effect
+    (default `lr`).}
+  \item{`equivalence`, `correspondence`}{`h` (default 0.2, correlation
+    units), `alpha` (default 0.05).}
+  \item{`minimum_effect`}{`h` (default `NULL`, i.e.
+    (1 - `shrinkage`) times the original effect), `shrinkage`
+    (default 0.25), `alpha` (default 0.025).}
+  \item{`significance_r`, `significance_agg`, `sum_p`, `pScept`}{`alpha`
+    (default: the `alpha` argument above, which is the recommended way
+    to change it); `sum_p` also takes `threshold`.}
+}}
 }
 \value{
 A named list with two data frames:
@@ -149,6 +193,17 @@ assess_replication_outcome(
     "BF_JZS"
   ),
   calibrated = TRUE
+)
+
+# Change thresholds of individual metrics
+assess_replication_outcome(
+  dat,
+  metric = c("consistency_pi", "BFe", "Likratio"),
+  metric_args = list(
+    consistency_pi = list(alpha = 0.05),   # 90\% prediction interval
+    BFe            = list(gamma = 3),
+    Likratio       = list(lr = 10)
+  )
 )
 }
 \seealso{

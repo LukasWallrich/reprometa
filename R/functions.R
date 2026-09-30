@@ -442,14 +442,51 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
 #'   recalibration: at one-sided level `alpha` their overall T1E rate is
 #'   already `alpha^2` (for a pre-specified direction), so they use `alpha`
 #'   whatever the value of `calibrated`. Family 2 metrics and the snapshot
-#'   hybrid are not calibrated and ignore `alpha`: they keep their own fixed
+#'   hybrid are not calibrated and ignore `alpha`: they keep their own
 #'   thresholds (95% intervals, TOST at 0.05, gamma = 1, lr = 8, posterior
-#'   probability 0.75).
+#'   probability 0.75), which can be changed with `metric_args`.
 #' @param alpha One-sided significance level of the Family 1 metrics
 #'   (`"significance_r"`, `"significance_agg"`, `"sum_p"`, `"pScept"`, and,
 #'   when `calibrated = TRUE`, `"BF_JZS"` and `"BFs"`). The overall T1E rate
 #'   targeted by the calibrated versions is `alpha^2`. Default 0.025.
 #'   Family 2 metrics keep their own conventional levels.
+#' @param metric_args Optional named list with one element per metric, each a
+#'   named list of arguments that replace that metric's defaults, e.g.
+#'   `list(BFe = list(gamma = 3), consistency_pi = list(alpha = 0.05))`.
+#'   `NULL` (default) uses the defaults everywhere. The available arguments
+#'   are:
+#'   \describe{
+#'     \item{`consistency_cir`, `consistency_cio`, `consistency_pi`}{`alpha`:
+#'       one-sided level, the interval is the (1 - 2 `alpha`) interval
+#'       (default 0.025, i.e. 95%). Reported confidence limits (correlation
+#'       scale, or `es_lb_*`/`es_ub_*` on the Fisher-z scale) are rescaled
+#'       on the Fisher-z scale around the point estimate when `alpha`
+#'       differs from 0.025.}
+#'     \item{`small_telescopes`}{`alpha`: level of the test against the
+#'       benchmark effect (default 0.025; reported limits are rescaled as
+#'       above); `alpha_benchmark`: level used to define the effect with
+#'       33 percent power in the original study (default `alpha`); `power`
+#'       (default 1/3).}
+#'     \item{`BF_JZS`, `BFs`}{`gamma`: evidence threshold. A value given
+#'       here replaces the calibrated threshold.}
+#'     \item{`BFr`}{`gamma` (default 1).}
+#'     \item{`BFe`}{`gamma` (default 1), `tau` (prior standard deviation,
+#'       default 0.2).}
+#'     \item{`snaphybrid`}{`threshold`: posterior probability the winning
+#'       model must exceed (default 0.75); prior probabilities `pr_0`,
+#'       `pr_s`, `pr_m` (default 0.25 each).}
+#'     \item{`Likratio`}{`lr`: evidence threshold (default 8); `lr_dtie`:
+#'       likelihood ratio that defines the theoretically interesting effect
+#'       (default `lr`).}
+#'     \item{`equivalence`, `correspondence`}{`h` (default 0.2, correlation
+#'       units), `alpha` (default 0.05).}
+#'     \item{`minimum_effect`}{`h` (default `NULL`, i.e.
+#'       (1 - `shrinkage`) times the original effect), `shrinkage`
+#'       (default 0.25), `alpha` (default 0.025).}
+#'     \item{`significance_r`, `significance_agg`, `sum_p`, `pScept`}{`alpha`
+#'       (default: the `alpha` argument above, which is the recommended way
+#'       to change it); `sum_p` also takes `threshold`.}
+#'   }
 #'
 #' @details
 #' Each selected metric is applied separately to every original-replication
@@ -521,9 +558,21 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
 #'   ),
 #'   calibrated = TRUE
 #' )
-assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.025) {
+#'
+#' # Change thresholds of individual metrics
+#' assess_replication_outcome(
+#'   dat,
+#'   metric = c("consistency_pi", "BFe", "Likratio"),
+#'   metric_args = list(
+#'     consistency_pi = list(alpha = 0.05),   # 90% prediction interval
+#'     BFe            = list(gamma = 3),
+#'     Likratio       = list(lr = 10)
+#'   )
+#' )
+assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.025,
+                                       metric_args = NULL) {
 
-  # `calibrated = TRUE` switches conventional thresholds that do NOT control 
+  # `calibrated = TRUE` switches conventional thresholds that do NOT control
   # the overall T1E rate at alpha^2 (default 0.025^2)
   # over to calibrated versions, with thresholds computed from `alpha` by
   # calibrate_threshold():
@@ -533,6 +582,12 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   #   meta    : fixed-effect pooling -> unweighted Stouffer at sqrt(2)*z_{1-alpha^2}
   # Metrics already calibrated at the alpha^2 (two-trials rule,
   # sum of p-values) use `alpha` directly.
+  # Since some thresholds (such as gamma, lr) are defined inside metric-specific functions,
+  # setting alpha=0.025 in assess_replication_outcome won't pass it down.
+  # `metric_args` passes metric-specific arguments (thresholds such as gamma,
+  # lr, the snapshot-hybrid threshold, or the alpha of Family 2 metrics) on to
+  # the metric functions below. If an explicit gamma for BF_JZS/BFs is declared
+  # inside metrics_arg, it will replace the calibrated one.
 
   stopifnot(is.logical(calibrated), length(calibrated) == 1)
   stopifnot(is.numeric(alpha), length(alpha) == 1, is.finite(alpha),
@@ -555,6 +610,8 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     #  alpha (original implementation).
     #  cor     -> TWO-SIDED p compared to 2*alpha (numerically the same
     #  decision when combined with the same-direction requirement below)
+    #  Setting scale=cor and including the additional arguments (DoF, effective sample size, etc.)
+    #  exactly replicates results at the same level of the original SCORE paper.
     if (unique(df$scale) == "cor") {
       p_o <- 2 * pnorm(abs(df$es_o / df$se_o), lower.tail = FALSE)
       p_r <- 2 * pnorm(abs(df$es_r / df$se_r), lower.tail = FALSE)
@@ -634,9 +691,9 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     dir <- sign(df$es_o) == sign(effect_comparison$ci_lb)
 
     outcome_detailed <- ifelse(is.na(sig) | is.na(dir), NA_character_,
-                        ifelse(sig & dir, "Aggregated effect is larger than 0 and in the same direction",
-                        ifelse(sig & !dir, "Aggregated effect is larger than 0 but in the opposite direction",
-                        ifelse(!sig, "Aggregated effect is not larger than 0", NA_character_))))
+                               ifelse(sig & dir, "Aggregated effect is larger than 0 and in the same direction",
+                                      ifelse(sig & !dir, "Aggregated effect is larger than 0 but in the opposite direction",
+                                             ifelse(!sig, "Aggregated effect is not larger than 0", NA_character_))))
 
     outcome <- ifelse(outcome_detailed == "Aggregated effect is larger than 0 and in the same direction",
                       "Replication success",
@@ -703,11 +760,14 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   }
 
   # Original effect in Replication Confidence interval metric ----
-  assess_or_consistency_with_rep <- function(df) {
+  # `alpha`: one-sided level, (1 - 2 alpha) interval. Reported 95% limits are
+  # used as they are at alpha = 0.025 and rescaled otherwise (rescale_ci()).
+  assess_or_consistency_with_rep <- function(df, alpha = 0.025) {
 
     if (unique(df$scale) == "cor" && all(c("repli_conv_r_lb","repli_conv_r_ub") %in% names(df))) {
 
-      outcome <- ifelse(df$es_o > df$repli_conv_r_lb & df$es_o < df$repli_conv_r_ub,
+      ci <- rescale_ci(df$repli_conv_r_lb, df$repli_conv_r_ub, df$es_r, alpha = alpha)
+      outcome <- ifelse(df$es_o > ci$lower & df$es_o < ci$upper,
                         "Replication success", "Replication failure")
 
       data.frame(outcome=outcome, outcome_detailed=outcome, quantitative_value=NA_real_)
@@ -715,15 +775,16 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     } else if (unique(df$scale) == "fisherz" && all(c("es_lb_r","es_ub_r") %in% names(df))) {
       # Containment against supplied bounds on the z scale (atanh of the study's
       # reported CI). atanh is monotonic, so decision-identical to raw-r.
-      outcome <- ifelse(is.na(df$es_o) | is.na(df$es_lb_r) | is.na(df$es_ub_r), NA_character_,
-                  ifelse(df$es_o > df$es_lb_r & df$es_o < df$es_ub_r,
-                         "Replication success", "Replication failure"))
+      ci <- rescale_ci(df$es_lb_r, df$es_ub_r, df$es_r, alpha = alpha, on_z = TRUE)
+      outcome <- ifelse(is.na(df$es_o) | is.na(ci$lower) | is.na(ci$upper), NA_character_,
+                        ifelse(df$es_o > ci$lower & df$es_o < ci$upper,
+                               "Replication success", "Replication failure"))
       data.frame(outcome=outcome, outcome_detailed=outcome, quantitative_value=NA_real_)
 
     } else {
 
       p_cir <- pnorm((df$es_r - df$es_o) / df$se_r, mean = 0, sd = 1, lower.tail = FALSE)
-      cis <- compute_ci(df$es_r, df$se_r)
+      cis <- compute_ci(df$es_r, df$se_r, alpha = alpha)
 
       outcome_detailed <- ifelse(df$es_o > cis$lower & df$es_o < cis$upper,
                                  "Original effect size is within replication's CI",
@@ -741,25 +802,27 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   }
 
   # Replication in Original Confidence interval metric ----
-  assess_rep_consistency_with_or <- function(df) {
+  assess_rep_consistency_with_or <- function(df, alpha = 0.025) {
 
     if (unique(df$scale) == "cor" && all(c("orig_conv_r_lb","orig_conv_r_ub") %in% names(df))) {
-      # --- precomputed bounds directly
-      outcome <- ifelse(df$es_r > df$orig_conv_r_lb & df$es_r < df$orig_conv_r_ub,
+      # --- precomputed bounds (rescaled when alpha != 0.025)
+      ci <- rescale_ci(df$orig_conv_r_lb, df$orig_conv_r_ub, df$es_o, alpha = alpha)
+      outcome <- ifelse(df$es_r > ci$lower & df$es_r < ci$upper,
                         "Replication success", "Replication failure")
       data.frame(outcome=outcome, outcome_detailed=outcome, quantitative_value=NA_real_)
 
     } else if (unique(df$scale) == "fisherz" && all(c("es_lb_o","es_ub_o") %in% names(df))) {
       # Same monotonicity argument: decision-identical to raw-r.
-      outcome <- ifelse(is.na(df$es_r) | is.na(df$es_lb_o) | is.na(df$es_ub_o), NA_character_,
-                  ifelse(df$es_r > df$es_lb_o & df$es_r < df$es_ub_o,
-                         "Replication success", "Replication failure"))
+      ci <- rescale_ci(df$es_lb_o, df$es_ub_o, df$es_o, alpha = alpha, on_z = TRUE)
+      outcome <- ifelse(is.na(df$es_r) | is.na(ci$lower) | is.na(ci$upper), NA_character_,
+                        ifelse(df$es_r > ci$lower & df$es_r < ci$upper,
+                               "Replication success", "Replication failure"))
       data.frame(outcome=outcome, outcome_detailed=outcome, quantitative_value=NA_real_)
 
     } else {
-      # --- existing Fisher-z / self-computed-CI path, unchanged ---
+      # --- existing Fisher-z / self-computed-CI path ---
       p_cio <- pnorm((df$es_o - df$es_r) / df$se_o, mean = 0, sd = 1, lower.tail = FALSE)
-      cis <- compute_ci(df$es_o, df$se_o)
+      cis <- compute_ci(df$es_o, df$se_o, alpha = alpha)
       outcome_detailed <- ifelse(df$es_r > cis$lower & df$es_r < cis$upper,
                                  "Replication effect size is within original's CI",
                                  ifelse(df$es_r <= cis$lower | df$es_r >= cis$upper,
@@ -774,13 +837,13 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   }
 
   # Replication in Original Prediction Interval ----
-  assess_rep_consistency_with_pi <- function(df) {
+  assess_rep_consistency_with_pi <- function(df, alpha = 0.025) {
 
     ### Calculate p-value for this metric
     p_PI <- pnorm((df$es_o - df$es_r) / sqrt(df$se_o^2 + df$se_r^2), mean = 0, sd = 1, lower.tail = FALSE)
 
-    ### Calculate prediction interval
-    pred_intervals <- compute_prediction_interval(df$es_o, df$se_o, df$se_r)
+    ### Calculate the (1 - 2 alpha) prediction interval
+    pred_intervals <- compute_prediction_interval(df$es_o, df$se_o, df$se_r, alpha = alpha)
 
     # On the correlation scale, cap the bounds to [-1, 1] -- matches
     # repli_binary.R exactly ("these can go above 1 and below -1, so just
@@ -809,7 +872,12 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
 
   # Small telescopes Metric ----
 
-  assess_small_telescopes <- function(df, power=1/3, alpha=0.025) {
+  # `alpha`: level of the test of the replication against the benchmark effect.
+  # `alpha_benchmark`: level used to define the benchmark (the effect the
+  # original had `power` to detect) on the probabilistic path. On the paths
+  # with reported limits, the benchmark comes from pwr.r.test() defaults and
+  # the reported 95% limits are rescaled when alpha != 0.025.
+  assess_small_telescopes <- function(df, power=1/3, alpha=0.025, alpha_benchmark = alpha) {
 
     n1_o <- if ("n1_o" %in% names(df)) df$n1_o else rep(NA_real_, nrow(df))
     n2_o <- if ("n2_o" %in% names(df)) df$n2_o else rep(NA_real_, nrow(df))
@@ -839,12 +907,14 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
         }, r = df$es_o, n = df$n_o)
 
       # Compare against the precomputed replication CI bounds directly --
-      # never recompute this CI, matching repli_binary.R exactly.
+      # never recompute this CI, matching repli_binary.R exactly
+      # (rescaled only when alpha != 0.025).
+      ci <- rescale_ci(df$repli_conv_r_lb, df$repli_conv_r_ub, df$es_r, alpha = alpha)
       outcome_detailed <- ifelse(sign(small_effect) == 1,
-                                 ifelse(df$repli_conv_r_ub > small_effect,
+                                 ifelse(ci$upper > small_effect,
                                         "original study had >= 33% power to detect replication effect",
                                         "original study had < 33% power to detect replication effect"),
-                                 ifelse(small_effect > df$repli_conv_r_lb,
+                                 ifelse(small_effect > ci$lower,
                                         "original study had >= 33% power to detect replication effect",
                                         "original study had < 33% power to detect replication effect"))
       quant_val <- small_effect
@@ -863,13 +933,14 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
         if (sign(z) == 1) thr else -thr
       }, z = df$es_o, n = df$n_o)
 
+      ci  <- rescale_ci(df$es_lb_r, df$es_ub_r, df$es_r, alpha = alpha, on_z = TRUE)
       hit <- ifelse(sign(small_effect) == 1,
-                    df$es_ub_r > small_effect,
-                    small_effect > df$es_lb_r)
+                    ci$upper > small_effect,
+                    small_effect > ci$lower)
       outcome_detailed <- ifelse(is.na(hit), NA_character_,
-                          ifelse(hit,
-                                 "original study had >= 33% power to detect replication effect",
-                                 "original study had < 33% power to detect replication effect"))
+                                 ifelse(hit,
+                                        "original study had >= 33% power to detect replication effect",
+                                        "original study had < 33% power to detect replication effect"))
       quant_val <- small_effect
 
     } else {
@@ -877,12 +948,12 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
       es_with_33power <- mapply(function(effectsize, n1, n2, n) {
         if (effectsize %in% c("SMD", "LOGOR")) {
           if (is.na(n1) || is.na(n2)) return(NA_real_)
-          d33 <- find_z_for_power(n1 = n1, n2 = n2, power = power, alpha = alpha)
+          d33 <- find_z_for_power(n1 = n1, n2 = n2, power = power, alpha = alpha_benchmark)
           r_to_zr(d_to_r(d33, n1 = n1, n2 = n2)[["r"]])[[1]]
         } else {
           if (is.na(n) || n < 4) return(NA_real_)
           power.z.test(power = power, n = n-3, type = "one.sample",
-                       sig.level = alpha, alternative = "one.sided")$delta
+                       sig.level = alpha_benchmark, alternative = "one.sided")$delta
         }
       }, effectsize=df$effectsize, n1=n1_o, n2=n2_o, n=df$n_o)
       es_with_33power <- as.numeric(es_with_33power)
@@ -903,8 +974,9 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   # JZS Bayes Factor ----
   assess_BFJZS <- function(df, gamma = 1){
 
-    # Calibrated threshold with overall T1E = alpha^2 (2.35 for alpha = 0.025)
-    if (calibrated) gamma <- calibrate_threshold("BF_JZS", alpha = alpha_level)
+    # Calibrated threshold with overall T1E = alpha^2 (2.35 for alpha = 0.025),
+    # unless gamma is given explicitly (metric_args)
+    if (calibrated && missing(gamma)) gamma <- calibrate_threshold("BF_JZS", alpha = alpha_level)
 
     # Computes integrand of the likelihood and the Cauchy prior (JZS prior)
     integrate_jzs <- function(theta, es, se){
@@ -1033,15 +1105,15 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
 
     outcome_detailed <- ifelse(is.na(BFr) | is.na(pattern_met), NA_character_,
                                ifelse(success,       "Evidence for replication success",
-                               ifelse(BFr >= 1,           "Weak evidence for replication success",
-                                      ifelse(BFr >= 1/gamma,     "Weak evidence for replication failure",
-                                             ifelse(BFr <= 1/gamma,     "Evidence for replication failure",
-                                                    NA_character_)))))
+                                      ifelse(BFr >= 1,           "Weak evidence for replication success",
+                                             ifelse(BFr >= 1/gamma,     "Weak evidence for replication failure",
+                                                    ifelse(BFr <= 1/gamma,     "Evidence for replication failure",
+                                                           NA_character_)))))
 
     outcome <- ifelse(is.na(BFr) | is.na(pattern_met), NA_character_,
                       ifelse(success,    "Replication success",
-                      ifelse(BFr <= 1/gamma, "Replication failure",
-                             "Inconclusive")))
+                             ifelse(BFr <= 1/gamma, "Replication failure",
+                                    "Inconclusive")))
 
     data.frame(outcome=outcome, outcome_detailed=outcome_detailed, quantitative_value = BFr)
   }
@@ -1051,8 +1123,9 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   assess_BFs <- function(df, gamma = 1){
 
     # Calibrated threshold with overall T1E = alpha^2 (2.81 for alpha = 0.025);
-    # pairs without a sceptical Bayes factor (NaN) count as non-successes
-    if (calibrated) gamma <- calibrate_threshold("BFs", alpha = alpha_level)
+    # pairs without a sceptical Bayes factor (NaN) count as non-successes.
+    # An explicitly given gamma (metric_args) replaces the calibrated one.
+    if (calibrated && missing(gamma)) gamma <- calibrate_threshold("BFs", alpha = alpha_level)
 
     compute_BFs <- function(to, so, tr, sr){
       if(any(is.na(c(to, so, tr, sr))) ||
@@ -1221,90 +1294,90 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     data.frame(outcome=outcome, outcome_detailed=outcome_detailed, quantitative_value = pScept)
   }
 
-    # compute_pScept_cor <- function(es_r, se_r, es_o, se_o, n_o, n_r,
-    #                                p_o = NA_real_, p_r = NA_real_){
-    #   if (any(is.na(c(n_o, n_r))) || n_o <= 0 || n_r <= 0) return(NA_real_)
-    #   p_ok <- function(p) !is.na(p) && is.finite(p) && p > 0 && p <= 1
-    #   if (p_ok(p_o) && p_ok(p_r)) {
-    #     zo <- ReplicationSuccess::p2z(p_o)
-    #     zr <- ReplicationSuccess::p2z(p_r)
-    #   } else {
-    #     return(NA_real_)   # no valid exact p -> unusable -> NA
-    #   }
-    #   tryCatch(
-    #     ReplicationSuccess::pSceptical(zo = zo, zr = zr, c = n_r/n_o,
-    #                                    alternative = "two.sided", type = "golden"),
-    #     error = function(e) NA_real_
-    #   )
-    # }
-    #
-    # compute_pScept_z <- function(es_r, se_r, es_o, se_o, n_o, n_r){
-    #   if (any(is.na(c(es_r, se_r, es_o, se_o, n_o, n_r))) ||
-    #       any(!is.finite(c(es_r, se_r, es_o, se_o, n_o, n_r))) ||
-    #       se_o <= 0 || se_r <= 0 || n_o <= 0 || n_r <= 0){
-    #     return(NA_real_)
-    #   }
-    #   tryCatch(
-    #     ReplicationSuccess::pSceptical(zo = es_o/se_o, zr = es_r/se_r, c = n_r/n_o,
-    #                                    alternative = "one.sided", type = "golden"),
-    #     error = function(e) NA_real_
-    #   )
-    # }
-    #
-    # # --- guard against dropped columns (COR-only data has no n1_o/n2_o/n1_r/n2_r) ---
-    # n1_o <- if ("n1_o" %in% names(df)) df$n1_o else rep(NA_real_, nrow(df))
-    # n2_o <- if ("n2_o" %in% names(df)) df$n2_o else rep(NA_real_, nrow(df))
-    # n1_r <- if ("n1_r" %in% names(df)) df$n1_r else rep(NA_real_, nrow(df))
-    # n2_r <- if ("n2_r" %in% names(df)) df$n2_r else rep(NA_real_, nrow(df))
-    #
-    # # --- resolve n_o/n_r ONCE, vectorized ---
-    # n_o_resolved <- ifelse(!is.na(n1_o) & !is.na(n2_o), n1_o + n2_o, df$n_o)
-    # n_r_resolved <- ifelse(!is.na(n1_r) & !is.na(n2_r), n1_r + n2_r, df$n_r)
-    #
-    # if (score_mode) {
-    #   p_o <- if ("orig_p_value"  %in% names(df)) df$orig_p_value  else rep(NA_real_, nrow(df))
-    #   p_r <- if ("repli_p_value" %in% names(df)) df$repli_p_value else rep(NA_real_, nrow(df))
-    #
-    #   pScept <- mapply(compute_pScept_cor,
-    #                    es_o = df$es_o, se_o = df$se_o, es_r = df$es_r, se_r = df$se_r,
-    #                    n_o = n_o_resolved, n_r = n_r_resolved,
-    #                    p_o = p_o, p_r = p_r)
-    #
-    #   skep_level <- ReplicationSuccess::levelSceptical(level = 0.05,
-    #                                                    alternative = "two.sided",
-    #                                                    type = "golden")
-    #
-    #   pattern_met <- if ("repli_pattern_criteria_met" %in% names(df)) {
-    #     df$repli_pattern_criteria_met
-    #   } else {
-    #     sign(df$es_o) == sign(df$es_r)
-    #   }
-    #
-    #   success <- !is.na(pScept) & !is.na(pattern_met) & (pScept < skep_level) & pattern_met
-    #   na_mask <- is.na(pScept) | is.na(pattern_met)
-    #
-    # } else {
-    #   pScept <- mapply(compute_pScept_z,
-    #                    es_o = df$es_o, se_o = df$se_o, es_r = df$es_r, se_r = df$se_r,
-    #                    n_o = n_o_resolved, n_r = n_r_resolved)
-    #
-    #   skep_level <- ReplicationSuccess::levelSceptical(level = alpha,
-    #                                                    alternative = "one.sided",
-    #                                                    type = "golden")
-    #
-    #   success <- !is.na(pScept) & (pScept <= skep_level)
-    #   na_mask <- is.na(pScept)
-    # }
-    #
-    # outcome_detailed <- ifelse(na_mask, NA_character_,
-    #                            ifelse(success,
-    #                                   "Evidence for replication success",
-    #                                   "No evidence for replication success"))
-    # outcome <- ifelse(na_mask, NA_character_,
-    #                   ifelse(success, "Replication success", "Replication failure"))
-    #
-    # data.frame(outcome=outcome, outcome_detailed=outcome_detailed, quantitative_value = pScept)
-    # }
+  # compute_pScept_cor <- function(es_r, se_r, es_o, se_o, n_o, n_r,
+  #                                p_o = NA_real_, p_r = NA_real_){
+  #   if (any(is.na(c(n_o, n_r))) || n_o <= 0 || n_r <= 0) return(NA_real_)
+  #   p_ok <- function(p) !is.na(p) && is.finite(p) && p > 0 && p <= 1
+  #   if (p_ok(p_o) && p_ok(p_r)) {
+  #     zo <- ReplicationSuccess::p2z(p_o)
+  #     zr <- ReplicationSuccess::p2z(p_r)
+  #   } else {
+  #     return(NA_real_)   # no valid exact p -> unusable -> NA
+  #   }
+  #   tryCatch(
+  #     ReplicationSuccess::pSceptical(zo = zo, zr = zr, c = n_r/n_o,
+  #                                    alternative = "two.sided", type = "golden"),
+  #     error = function(e) NA_real_
+  #   )
+  # }
+  #
+  # compute_pScept_z <- function(es_r, se_r, es_o, se_o, n_o, n_r){
+  #   if (any(is.na(c(es_r, se_r, es_o, se_o, n_o, n_r))) ||
+  #       any(!is.finite(c(es_r, se_r, es_o, se_o, n_o, n_r))) ||
+  #       se_o <= 0 || se_r <= 0 || n_o <= 0 || n_r <= 0){
+  #     return(NA_real_)
+  #   }
+  #   tryCatch(
+  #     ReplicationSuccess::pSceptical(zo = es_o/se_o, zr = es_r/se_r, c = n_r/n_o,
+  #                                    alternative = "one.sided", type = "golden"),
+  #     error = function(e) NA_real_
+  #   )
+  # }
+  #
+  # # --- guard against dropped columns (COR-only data has no n1_o/n2_o/n1_r/n2_r) ---
+  # n1_o <- if ("n1_o" %in% names(df)) df$n1_o else rep(NA_real_, nrow(df))
+  # n2_o <- if ("n2_o" %in% names(df)) df$n2_o else rep(NA_real_, nrow(df))
+  # n1_r <- if ("n1_r" %in% names(df)) df$n1_r else rep(NA_real_, nrow(df))
+  # n2_r <- if ("n2_r" %in% names(df)) df$n2_r else rep(NA_real_, nrow(df))
+  #
+  # # --- resolve n_o/n_r ONCE, vectorized ---
+  # n_o_resolved <- ifelse(!is.na(n1_o) & !is.na(n2_o), n1_o + n2_o, df$n_o)
+  # n_r_resolved <- ifelse(!is.na(n1_r) & !is.na(n2_r), n1_r + n2_r, df$n_r)
+  #
+  # if (score_mode) {
+  #   p_o <- if ("orig_p_value"  %in% names(df)) df$orig_p_value  else rep(NA_real_, nrow(df))
+  #   p_r <- if ("repli_p_value" %in% names(df)) df$repli_p_value else rep(NA_real_, nrow(df))
+  #
+  #   pScept <- mapply(compute_pScept_cor,
+  #                    es_o = df$es_o, se_o = df$se_o, es_r = df$es_r, se_r = df$se_r,
+  #                    n_o = n_o_resolved, n_r = n_r_resolved,
+  #                    p_o = p_o, p_r = p_r)
+  #
+  #   skep_level <- ReplicationSuccess::levelSceptical(level = 0.05,
+  #                                                    alternative = "two.sided",
+  #                                                    type = "golden")
+  #
+  #   pattern_met <- if ("repli_pattern_criteria_met" %in% names(df)) {
+  #     df$repli_pattern_criteria_met
+  #   } else {
+  #     sign(df$es_o) == sign(df$es_r)
+  #   }
+  #
+  #   success <- !is.na(pScept) & !is.na(pattern_met) & (pScept < skep_level) & pattern_met
+  #   na_mask <- is.na(pScept) | is.na(pattern_met)
+  #
+  # } else {
+  #   pScept <- mapply(compute_pScept_z,
+  #                    es_o = df$es_o, se_o = df$se_o, es_r = df$es_r, se_r = df$se_r,
+  #                    n_o = n_o_resolved, n_r = n_r_resolved)
+  #
+  #   skep_level <- ReplicationSuccess::levelSceptical(level = alpha,
+  #                                                    alternative = "one.sided",
+  #                                                    type = "golden")
+  #
+  #   success <- !is.na(pScept) & (pScept <= skep_level)
+  #   na_mask <- is.na(pScept)
+  # }
+  #
+  # outcome_detailed <- ifelse(na_mask, NA_character_,
+  #                            ifelse(success,
+  #                                   "Evidence for replication success",
+  #                                   "No evidence for replication success"))
+  # outcome <- ifelse(na_mask, NA_character_,
+  #                   ifelse(success, "Replication success", "Replication failure"))
+  #
+  # data.frame(outcome=outcome, outcome_detailed=outcome_detailed, quantitative_value = pScept)
+  # }
 
   # Snapshot hybrid ----
 
@@ -1435,99 +1508,99 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     )
   }
 
-    # snap_results <- data.frame(
-    #   pSnap = rep(NA_real_, nrow(df)),
-    #   snap_idx = rep(NA_integer_, nrow(df))
-    # )
-    #
-    # for(i in seq_len(nrow(df))){
-    #
-    #   es_o <- df$es_o[i]
-    #   es_r <- df$es_r[i]
-    #   se_o <- df$se_o[i]
-    #   se_r <- df$se_r[i]
-    #
-    #   ## Skip missing values
-    #   if(any(is.na(c(es_o, es_r, se_o, se_r))) ||
-    #      any(!is.finite(c(es_o, es_r, se_o, se_r))) ||
-    #      se_o <= 0 || se_r <= 0){
-    #     next
-    #   }
-    #
-    #   vals <- tryCatch(
-    #     hybrid_snap(
-    #       es = c(es_o, es_r),
-    #       se = c(se_o, se_r)
-    #     ),
-    #     error = function(e) NULL
-    #   )
-    #
-    #   ## hybrid_snap failed
-    #   if(is.null(vals))
-    #     next
-    #
-    #   ## Check output format
-    #   if(!is.data.frame(vals) ||
-    #      nrow(vals) != 1 ||
-    #      ncol(vals) != 4)
-    #     next
-    #
-    #   probs <- as.numeric(vals[1, ])
-    #
-    #   ## Invalid probabilities
-    #   if(anyNA(probs) ||
-    #      length(probs) != 4)
-    #     next
-    #
-    #   idx <- which.max(probs)
-    #
-    #   snap_results$pSnap[i] <- probs[idx]
-    #   snap_results$snap_idx[i] <- idx
-    # }
-    #
-    # cat("Rows in df:", nrow(df), "\n")
-    # cat("Rows in snap_results:", nrow(snap_results), "\n")
-    #
-    # post_Snap <- snap_results$pSnap
-    # snap_idx  <- snap_results$snap_idx
-    #
-    # ## Rows for which snapshot hybrid was successfully calculated
-    # evaluated <- !is.na(post_Snap) & !is.na(snap_idx)
-    #
-    #
-    # above_threshold <- evaluated & post_Snap > threshold
-    #
-    # ## Selected model
-    # null_selected <- above_threshold & snap_idx == 1L
-    # nonnull_selected <- above_threshold & snap_idx %in% 2:4
-    #
-    # ### Detailed classification
-    #
-    # outcome_detailed <- rep(NA_character_, nrow(df))
-    #
-    # ## Evaluated rows without any PMP > threshold
-    # outcome_detailed[evaluated & !above_threshold] <-
-    #   "Inconclusive evidence"
-    #
-    # ## At threshold = 0.75, at most one model can satisfy this condition
-    # outcome_detailed[above_threshold] <- paste(
-    #   "Evidence for",
-    #   effect_labels[snap_idx[above_threshold]]
-    # )
-    #
-    # ### Binary replication outcome
-    #
-    # outcome <- rep(NA_character_, nrow(df))
-    #
-    # ## Null evidence and inconclusive evidence are both failures
-    # outcome[evaluated] <- "Replication failure"
-    #
-    # ## Small, medium, or large effect evidence is success
-    # outcome[nonnull_selected] <- "Replication success"
-    #
-    # data.frame(outcome = outcome,
-    #   outcome_detailed = outcome_detailed,
-    #   quantitative_value = post_Snap)}
+  # snap_results <- data.frame(
+  #   pSnap = rep(NA_real_, nrow(df)),
+  #   snap_idx = rep(NA_integer_, nrow(df))
+  # )
+  #
+  # for(i in seq_len(nrow(df))){
+  #
+  #   es_o <- df$es_o[i]
+  #   es_r <- df$es_r[i]
+  #   se_o <- df$se_o[i]
+  #   se_r <- df$se_r[i]
+  #
+  #   ## Skip missing values
+  #   if(any(is.na(c(es_o, es_r, se_o, se_r))) ||
+  #      any(!is.finite(c(es_o, es_r, se_o, se_r))) ||
+  #      se_o <= 0 || se_r <= 0){
+  #     next
+  #   }
+  #
+  #   vals <- tryCatch(
+  #     hybrid_snap(
+  #       es = c(es_o, es_r),
+  #       se = c(se_o, se_r)
+  #     ),
+  #     error = function(e) NULL
+  #   )
+  #
+  #   ## hybrid_snap failed
+  #   if(is.null(vals))
+  #     next
+  #
+  #   ## Check output format
+  #   if(!is.data.frame(vals) ||
+  #      nrow(vals) != 1 ||
+  #      ncol(vals) != 4)
+  #     next
+  #
+  #   probs <- as.numeric(vals[1, ])
+  #
+  #   ## Invalid probabilities
+  #   if(anyNA(probs) ||
+  #      length(probs) != 4)
+  #     next
+  #
+  #   idx <- which.max(probs)
+  #
+  #   snap_results$pSnap[i] <- probs[idx]
+  #   snap_results$snap_idx[i] <- idx
+  # }
+  #
+  # cat("Rows in df:", nrow(df), "\n")
+  # cat("Rows in snap_results:", nrow(snap_results), "\n")
+  #
+  # post_Snap <- snap_results$pSnap
+  # snap_idx  <- snap_results$snap_idx
+  #
+  # ## Rows for which snapshot hybrid was successfully calculated
+  # evaluated <- !is.na(post_Snap) & !is.na(snap_idx)
+  #
+  #
+  # above_threshold <- evaluated & post_Snap > threshold
+  #
+  # ## Selected model
+  # null_selected <- above_threshold & snap_idx == 1L
+  # nonnull_selected <- above_threshold & snap_idx %in% 2:4
+  #
+  # ### Detailed classification
+  #
+  # outcome_detailed <- rep(NA_character_, nrow(df))
+  #
+  # ## Evaluated rows without any PMP > threshold
+  # outcome_detailed[evaluated & !above_threshold] <-
+  #   "Inconclusive evidence"
+  #
+  # ## At threshold = 0.75, at most one model can satisfy this condition
+  # outcome_detailed[above_threshold] <- paste(
+  #   "Evidence for",
+  #   effect_labels[snap_idx[above_threshold]]
+  # )
+  #
+  # ### Binary replication outcome
+  #
+  # outcome <- rep(NA_character_, nrow(df))
+  #
+  # ## Null evidence and inconclusive evidence are both failures
+  # outcome[evaluated] <- "Replication failure"
+  #
+  # ## Small, medium, or large effect evidence is success
+  # outcome[nonnull_selected] <- "Replication success"
+  #
+  # data.frame(outcome = outcome,
+  #   outcome_detailed = outcome_detailed,
+  #   quantitative_value = post_Snap)}
 
   # Likelihood ratio approach ----
 
@@ -1560,13 +1633,15 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   #
   # }
 
-  assess_Likratio <- function(df, lr = 8){
+  # `lr`: evidence threshold. `lr_dtie`: likelihood ratio that defines the
+  # theoretically interesting effect Dtie (by default the same as lr).
+  assess_Likratio <- function(df, lr = 8, lr_dtie = lr){
 
     scale_here <- unique(df$scale)
     to_r    <- function(es) if (identical(scale_here, "fisherz")) tanh(es) else es
     r_to_d  <- function(r)  2 * r / sqrt(1 - r^2)
 
-    compute_Likratio <- function(es_o, es_r, n_o, n_r, lr) {
+    compute_Likratio <- function(es_o, es_r, n_o, n_r, lr_dtie) {
       if (any(is.na(c(es_o, es_r, n_o, n_r))) ||
           any(!is.finite(c(es_o, es_r, n_o, n_r))) ||
           n_o <= 2 || n_r <= 2) return(NA_real_)
@@ -1585,7 +1660,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
       # (the variance ratio drops below 1). is.na() handles this potential error
       # so the warning is suppressed.
       Dtie_res <- suppressWarnings(
-        tryCatch(Dtie(n_o = n_o, lr = lr), error = function(e) NA_real_)
+        tryCatch(Dtie(n_o = n_o, lr = lr_dtie), error = function(e) NA_real_)
       )
       if (is.na(Dtie_res) || !is.finite(Dtie_res)) return(NA_real_)
 
@@ -1600,7 +1675,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     LRae_0 <- mapply(compute_Likratio,
                      es_o = df$es_o, es_r = df$es_r,
                      n_o = df$n_o, n_r = df$n_r,
-                     MoreArgs = list(lr = lr))
+                     MoreArgs = list(lr_dtie = lr_dtie))
 
     ### Success criterion --
     outcome_detailed <- ifelse(is.na(LRae_0), NA_character_,
@@ -1710,55 +1785,55 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   # Minimum-effect test ----
   assess_minimum_effect <- function(df, h = NULL, shrinkage=0.25, alpha = 0.025){
 
-  # Minimum-effect testing is the mirror image of equivalence testing (TOST):
-  # Equivalently, H0 is rejected when the (1 - 2*alpha) CI for the difference
-  # lies entirely outside [-h, h] --
-  # The combined p-value is the minimum of the two one-sided p-values
-  # while TOST takes the maximum.
-  needs_backtransform <- unique(df$scale) == "fisherz"
+    # Minimum-effect testing is the mirror image of equivalence testing (TOST):
+    # Equivalently, H0 is rejected when the (1 - 2*alpha) CI for the difference
+    # lies entirely outside [-h, h] --
+    # The combined p-value is the minimum of the two one-sided p-values
+    # while TOST takes the maximum.
+    needs_backtransform <- unique(df$scale) == "fisherz"
 
-  compute_min_effect <- function(es_o, se_o, es_r, se_r){
-    if(any(is.na(c(es_o, se_o, es_r, se_r))) ||
-       any(!is.finite(c(es_o, se_o, es_r, se_r))) ||
-       se_o <= 0 || se_r <= 0){
-      return(NA_real_)
+    compute_min_effect <- function(es_o, se_o, es_r, se_r){
+      if(any(is.na(c(es_o, se_o, es_r, se_r))) ||
+         any(!is.finite(c(es_o, se_o, es_r, se_r))) ||
+         se_o <= 0 || se_r <= 0){
+        return(NA_real_)
+      }
+      if (needs_backtransform) {
+        o <- fisherz_to_r(es_o, se_o); r <- fisherz_to_r(es_r, se_r)
+        es_o <- o$r; se_o <- o$se_r; es_r <- r$r; se_r <- r$se_r
+      }
+      tryCatch({
+        # orient both estimates to the original's direction
+        flip  <- if (es_o < 0) -1 else 1
+        es_o  <- es_o * flip
+        es_r  <- es_r * flip
+
+        h_use <- if (is.null(h)) (1 - shrinkage) * es_o else h
+        if (is.na(h_use) || !is.finite(h_use)) return(NA_real_)
+
+        # one-sided: evidence that theta_r lies BELOW h
+        stats::pnorm((es_r - h_use) / se_r, lower.tail = TRUE)
+      }, error = function(e) NA_real_)
     }
-    if (needs_backtransform) {
-      o <- fisherz_to_r(es_o, se_o); r <- fisherz_to_r(es_r, se_r)
-      es_o <- o$r; se_o <- o$se_r; es_r <- r$r; se_r <- r$se_r
-    }
-    tryCatch({
-      # orient both estimates to the original's direction
-      flip  <- if (es_o < 0) -1 else 1
-      es_o  <- es_o * flip
-      es_r  <- es_r * flip
 
-      h_use <- if (is.null(h)) (1 - shrinkage) * es_o else h
-      if (is.na(h_use) || !is.finite(h_use)) return(NA_real_)
+    p_min <- mapply(compute_min_effect, es_o = df$es_o, se_o = df$se_o,
+                    es_r = df$es_r, se_r = df$se_r)
 
-      # one-sided: evidence that theta_r lies BELOW h
-      stats::pnorm((es_r - h_use) / se_r, lower.tail = TRUE)
-    }, error = function(e) NA_real_)
-  }
+    rejected <- !is.na(p_min) & (p_min <= alpha)
 
-  p_min <- mapply(compute_min_effect, es_o = df$es_o, se_o = df$se_o,
-                  es_r = df$es_r, se_r = df$se_r)
+    ### Success criterion: rejecting H0 = significant shrinkage below h = failure
+    success <- !is.na(p_min) & !rejected
 
-  rejected <- !is.na(p_min) & (p_min <= alpha)
+    outcome_detailed <- ifelse(is.na(p_min), NA_character_,
+                               ifelse(rejected,
+                                      "Replication effect is significantly smaller than the minimum effect of interest",
+                                      "Replication effect is not significantly smaller than the minimum effect of interest"))
 
-  ### Success criterion: rejecting H0 = significant shrinkage below h = failure
-  success <- !is.na(p_min) & !rejected
+    outcome <- ifelse(is.na(p_min), NA_character_,
+                      ifelse(success, "Replication success", "Replication failure"))
 
-  outcome_detailed <- ifelse(is.na(p_min), NA_character_,
-                             ifelse(rejected,
-                                    "Replication effect is significantly smaller than the minimum effect of interest",
-                                    "Replication effect is not significantly smaller than the minimum effect of interest"))
-
-  outcome <- ifelse(is.na(p_min), NA_character_,
-                    ifelse(success, "Replication success", "Replication failure"))
-
-  data.frame(outcome = outcome, outcome_detailed = outcome_detailed,
-             quantitative_value = p_min)
+    data.frame(outcome = outcome, outcome_detailed = outcome_detailed,
+               quantitative_value = p_min)
   }
 
   # Switching the names of the functions to metric argument
@@ -1788,8 +1863,35 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
          "\nAvailable metrics: ", paste(names(metric_fns), collapse=", "))
   }
 
+  # Metric-specific arguments (thresholds etc.) passed on to the metric function
+  if (!is.null(metric_args)) {
+    if (!is.list(metric_args) || is.null(names(metric_args)) ||
+        any(!nzchar(names(metric_args))) || anyDuplicated(names(metric_args))) {
+      stop("`metric_args` must be a named list with one element per metric, ",
+           "e.g. list(BFe = list(gamma = 3)).")
+    }
+    not_requested <- setdiff(names(metric_args), metric)
+    if (length(not_requested) > 0) {
+      stop("`metric_args` given for metric(s) not in `metric`: ",
+           paste(not_requested, collapse = ", "))
+    }
+    for (m in names(metric_args)) {
+      a <- metric_args[[m]]
+      if (!is.list(a) || (length(a) > 0 && (is.null(names(a)) || any(!nzchar(names(a)))))) {
+        stop("`metric_args$", m, "` must be a named list of arguments.")
+      }
+      allowed <- setdiff(names(formals(metric_fns[[m]])), "df")
+      unknown_args <- setdiff(names(a), allowed)
+      if (length(unknown_args) > 0) {
+        stop("Unknown argument(s) for metric '", m, "': ",
+             paste(unknown_args, collapse = ", "),
+             ". Available: ", paste(allowed, collapse = ", "))
+      }
+    }
+  }
+
   results <- lapply(metric, function(m) {
-    res <- metric_fns[[m]](df)
+    res <- do.call(metric_fns[[m]], c(list(df), metric_args[[m]]))
     res$study_id <- df$study_id
     res$metric   <- m
     res

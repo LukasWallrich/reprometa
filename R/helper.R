@@ -276,6 +276,25 @@ compute_ci <- function(es, se, alpha = 0.025){
   data.frame(es = es, se = se, lower = z_lower, upper = z_upper)
 }
 
+# Rescale reported 95% confidence limits to a (1 - 2 alpha) interval ----
+# Reported limits cannot be recomputed, so each side is rescaled on the
+# Fisher-z scale around the point estimate: distance to the limit *
+# qnorm(1 - alpha) / qnorm(1 - ref_alpha). Asymmetric intervals stay
+# asymmetric and a single missing limit only affects its own side.
+# At alpha = ref_alpha the limits are returned unchanged.
+# `on_z = TRUE`: limits and estimate are already on the Fisher-z scale.
+rescale_ci <- function(lb, ub, est, alpha, on_z = FALSE, ref_alpha = 0.025) {
+  if (isTRUE(all.equal(alpha, ref_alpha))) return(list(lower = lb, upper = ub))
+  to_z <- function(b) atanh(pmax(pmin(b, 1 - 1e-12), -1 + 1e-12))
+  zl <- if (on_z) lb  else to_z(lb)
+  zu <- if (on_z) ub  else to_z(ub)
+  ze <- if (on_z) est else to_z(est)
+  k  <- stats::qnorm(1 - alpha) / stats::qnorm(1 - ref_alpha)
+  lo <- ze - (ze - zl) * k
+  hi <- ze + (zu - ze) * k
+  if (on_z) list(lower = lo, upper = hi) else list(lower = tanh(lo), upper = tanh(hi))
+}
+
 # Back-transform a Fisher-z effect size + SE to the correlation scale ----
 # (delta method: d/dz tanh(z) = 1 - tanh(z)^2)
 fisherz_to_r <- function(z, se_z){
