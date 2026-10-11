@@ -1167,37 +1167,23 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   assess_pScept <- function(df, alpha = alpha_level){
 
     # Sidedness follows the analysis scale:
-    #  * scale == "cor"     -> TWO-SIDED: z's from the reported
-    #    p-values via p2z(), threshold levelSceptical(2 * alpha, "two.sided",
-    #    "golden") = 0.1234 for alpha = 0.025 (repli_binary.R uses 0.05),
-    #    success gated
-    #    by the qualitative pattern flag (two.sided pSceptical doesn't check
-    #    direction itself).
-    #  * scale == "fisherz" -> ONE-SIDED, original implementation: z's from
-    #    the effect size / SE ratio, threshold levelSceptical(alpha,
-    #    "one.sided", "golden"); no pattern gate (one.sided pSceptical
-    #    handles direction internally).
+    #  * scale == "cor"     -> TWO-SIDED: z's from the reported p-values via
+    #    p2z(); success gated by the qualitative pattern flag (two.sided
+    #    pSceptical doesn't check direction itself).
+    #  * scale == "fisherz" -> ONE-SIDED: z's from the effect size / SE ratio;
+    #    no pattern gate (one.sided pSceptical handles direction internally).
+    #
+    # pSceptical(type = "golden" / "controlled") returns a RECALIBRATED sceptical
+    # p-value, which is compared directly with the significance level: alpha
+    # (one-sided) or 2 * alpha (two-sided), as in SCORE's repli_binary.R.
+    # levelSceptical() gives the threshold for the NOMINAL p-value and must not
+    # be applied to the recalibrated one (that would recalibrate twice).
     score_mode <- unique(df$scale) == "cor"
 
-    # Calibrated: swap the "golden" recalibration for the "controlled" one,
-    # which achieves EXACT overall T1E control at alpha^2 by making the success
-    # threshold a function of the variance ratio c = n_r/n_o (so unlike golden,
-    # the threshold varies per study pair and must be computed row-wise).
+    # Calibrated: use the "controlled" recalibration, which achieves exact
+    # overall T1E control at alpha^2 for every variance ratio c = n_r/n_o;
+    # otherwise use the "golden" recalibration.
     ps_type <- if (calibrated) "controlled" else "golden"
-
-    # controlled levelSceptical() requires a finite c for every element, so
-    # compute it only where c is usable and leave NA elsewhere (those rows are
-    # already NA in pScept and drop out of the success test regardless).
-    controlled_level <- function(cc, alt) {
-      out <- rep(NA_real_, length(cc))
-      ok  <- !is.na(cc) & is.finite(cc) & cc > 0
-      if (any(ok)) {
-        out[ok] <- ReplicationSuccess::levelSceptical(level = alpha, c = cc[ok],
-                                                      alternative = alt, type = "controlled")
-      }
-      out
-    }
-
 
     compute_pScept_cor <- function(es_r, se_r, es_o, se_o, n_o, n_r,
                                    p_o = NA_real_, p_r = NA_real_){
@@ -1248,15 +1234,8 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
                        n_o = n_o_resolved, n_r = n_r_resolved,
                        p_o = p_o, p_r = p_r)
 
-      # golden: one fixed threshold. controlled: threshold depends on c = n_r/n_o,
-      # so it is computed per study pair (levelSceptical is vectorised over c).
-      skep_level <- if (calibrated) {
-        controlled_level(n_r_resolved / n_o_resolved, alt = "one.sided")
-      } else {
-        ReplicationSuccess::levelSceptical(level = 2 * alpha,
-                                           alternative = "two.sided",
-                                           type = "golden")
-      }
+      # two-sided recalibrated p-value -> compare with 2 * alpha
+      skep_level <- rep(2 * alpha, nrow(df))
 
       pattern_met <- if ("repli_pattern_criteria_met" %in% names(df)) {
         df$repli_pattern_criteria_met
@@ -1272,13 +1251,8 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
                        es_o = df$es_o, se_o = df$se_o, es_r = df$es_r, se_r = df$se_r,
                        n_o = n_o_resolved, n_r = n_r_resolved)
 
-      skep_level <- if (calibrated) {
-        controlled_level(n_r_resolved / n_o_resolved, "one.sided")
-      } else {
-        ReplicationSuccess::levelSceptical(level = alpha,
-                                           alternative = "one.sided",
-                                           type = "golden")
-      }
+      # one-sided recalibrated p-value -> compare with alpha
+      skep_level <- rep(alpha, nrow(df))
 
       success <- !is.na(pScept) & !is.na(skep_level) & (pScept <= skep_level)
       na_mask <- is.na(pScept)
@@ -1293,91 +1267,6 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
 
     data.frame(outcome=outcome, outcome_detailed=outcome_detailed, quantitative_value = pScept)
   }
-
-  # compute_pScept_cor <- function(es_r, se_r, es_o, se_o, n_o, n_r,
-  #                                p_o = NA_real_, p_r = NA_real_){
-  #   if (any(is.na(c(n_o, n_r))) || n_o <= 0 || n_r <= 0) return(NA_real_)
-  #   p_ok <- function(p) !is.na(p) && is.finite(p) && p > 0 && p <= 1
-  #   if (p_ok(p_o) && p_ok(p_r)) {
-  #     zo <- ReplicationSuccess::p2z(p_o)
-  #     zr <- ReplicationSuccess::p2z(p_r)
-  #   } else {
-  #     return(NA_real_)   # no valid exact p -> unusable -> NA
-  #   }
-  #   tryCatch(
-  #     ReplicationSuccess::pSceptical(zo = zo, zr = zr, c = n_r/n_o,
-  #                                    alternative = "two.sided", type = "golden"),
-  #     error = function(e) NA_real_
-  #   )
-  # }
-  #
-  # compute_pScept_z <- function(es_r, se_r, es_o, se_o, n_o, n_r){
-  #   if (any(is.na(c(es_r, se_r, es_o, se_o, n_o, n_r))) ||
-  #       any(!is.finite(c(es_r, se_r, es_o, se_o, n_o, n_r))) ||
-  #       se_o <= 0 || se_r <= 0 || n_o <= 0 || n_r <= 0){
-  #     return(NA_real_)
-  #   }
-  #   tryCatch(
-  #     ReplicationSuccess::pSceptical(zo = es_o/se_o, zr = es_r/se_r, c = n_r/n_o,
-  #                                    alternative = "one.sided", type = "golden"),
-  #     error = function(e) NA_real_
-  #   )
-  # }
-  #
-  # # --- guard against dropped columns (COR-only data has no n1_o/n2_o/n1_r/n2_r) ---
-  # n1_o <- if ("n1_o" %in% names(df)) df$n1_o else rep(NA_real_, nrow(df))
-  # n2_o <- if ("n2_o" %in% names(df)) df$n2_o else rep(NA_real_, nrow(df))
-  # n1_r <- if ("n1_r" %in% names(df)) df$n1_r else rep(NA_real_, nrow(df))
-  # n2_r <- if ("n2_r" %in% names(df)) df$n2_r else rep(NA_real_, nrow(df))
-  #
-  # # --- resolve n_o/n_r ONCE, vectorized ---
-  # n_o_resolved <- ifelse(!is.na(n1_o) & !is.na(n2_o), n1_o + n2_o, df$n_o)
-  # n_r_resolved <- ifelse(!is.na(n1_r) & !is.na(n2_r), n1_r + n2_r, df$n_r)
-  #
-  # if (score_mode) {
-  #   p_o <- if ("orig_p_value"  %in% names(df)) df$orig_p_value  else rep(NA_real_, nrow(df))
-  #   p_r <- if ("repli_p_value" %in% names(df)) df$repli_p_value else rep(NA_real_, nrow(df))
-  #
-  #   pScept <- mapply(compute_pScept_cor,
-  #                    es_o = df$es_o, se_o = df$se_o, es_r = df$es_r, se_r = df$se_r,
-  #                    n_o = n_o_resolved, n_r = n_r_resolved,
-  #                    p_o = p_o, p_r = p_r)
-  #
-  #   skep_level <- ReplicationSuccess::levelSceptical(level = 0.05,
-  #                                                    alternative = "two.sided",
-  #                                                    type = "golden")
-  #
-  #   pattern_met <- if ("repli_pattern_criteria_met" %in% names(df)) {
-  #     df$repli_pattern_criteria_met
-  #   } else {
-  #     sign(df$es_o) == sign(df$es_r)
-  #   }
-  #
-  #   success <- !is.na(pScept) & !is.na(pattern_met) & (pScept < skep_level) & pattern_met
-  #   na_mask <- is.na(pScept) | is.na(pattern_met)
-  #
-  # } else {
-  #   pScept <- mapply(compute_pScept_z,
-  #                    es_o = df$es_o, se_o = df$se_o, es_r = df$es_r, se_r = df$se_r,
-  #                    n_o = n_o_resolved, n_r = n_r_resolved)
-  #
-  #   skep_level <- ReplicationSuccess::levelSceptical(level = alpha,
-  #                                                    alternative = "one.sided",
-  #                                                    type = "golden")
-  #
-  #   success <- !is.na(pScept) & (pScept <= skep_level)
-  #   na_mask <- is.na(pScept)
-  # }
-  #
-  # outcome_detailed <- ifelse(na_mask, NA_character_,
-  #                            ifelse(success,
-  #                                   "Evidence for replication success",
-  #                                   "No evidence for replication success"))
-  # outcome <- ifelse(na_mask, NA_character_,
-  #                   ifelse(success, "Replication success", "Replication failure"))
-  #
-  # data.frame(outcome=outcome, outcome_detailed=outcome_detailed, quantitative_value = pScept)
-  # }
 
   # Snapshot hybrid ----
 
