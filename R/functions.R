@@ -405,7 +405,12 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
 #'     \item{`"small_telescopes"`}{Small-telescopes criterion based on the
 #'       effect that the original study had 33 percent power to detect.}
 #'     \item{`"BF_JZS"`}{Independent Jeffreys-Zellner-Siow Bayes-factor
-#'       criterion.}
+#'       criterion: both Bayes factors above the threshold and the two
+#'       estimates in the same direction.}
+#'     \item{`"BF_meta"`}{Fixed-effect meta-analytic Bayes factor: JZS Bayes
+#'       factor for an effect common to the original and replication studies,
+#'       computed from their inverse-variance pooled estimate; success also
+#'       requires the pooled estimate to have the direction of the original.}
 #'     \item{`"BFe"`}{Equality-of-effect-sizes Bayes factor.}
 #'     \item{`"BFr"`}{Replication Bayes factor.}
 #'     \item{`"BFs"`}{Sceptical Bayes factor.}
@@ -432,9 +437,13 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
 #'     \item `"significance_agg"` uses an unweighted Stouffer combination with
 #'       threshold \eqn{\sqrt{2} z_{1-\alpha^2}};
 #'     \item `"BF_JZS"` uses the Bayes-factor threshold
-#'       `calibrate_threshold("BF_JZS", alpha)` (2.44 for alpha = 0.025), for
-#'       which the overall T1E rate is at most \eqn{\alpha^2} for every
-#'       standard error;
+#'       `calibrate_threshold("BF_JZS", alpha)` (1.60 for alpha = 0.025), for
+#'       which the overall T1E rate is at most \eqn{\alpha^2} (for a
+#'       pre-specified direction) for every standard error;
+#'     \item `"BF_meta"` uses the Bayes-factor threshold
+#'       `calibrate_threshold("BF_meta", alpha)` (23.7 for alpha = 0.025),
+#'       for which the overall T1E rate is at most \eqn{\alpha^2} for every
+#'       standard error of the pooled estimate;
 #'     \item `"BFs"` uses the Bayes-factor threshold
 #'       `calibrate_threshold("BFs", alpha, c)` computed from the variance
 #'       ratio \eqn{c = v_o / v_r} of each pair (2.81 for
@@ -452,7 +461,7 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
 #'   probability 0.75), which can be changed with `metric_args`.
 #' @param alpha One-sided significance level of the Family 1 metrics
 #'   (`"significance_r"`, `"significance_agg"`, `"sum_p"`, `"pScept"`, and,
-#'   when `calibrated = TRUE`, `"BF_JZS"` and `"BFs"`). The overall T1E rate
+#'   when `calibrated = TRUE`, `"BF_JZS"`, `"BF_meta"` and `"BFs"`). The overall T1E rate
 #'   targeted by the calibrated versions is `alpha^2`. Default 0.025.
 #'   Family 2 metrics keep their own conventional levels.
 #' @param metric_args Optional named list with one element per metric, each a
@@ -472,8 +481,9 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
 #'       above); `alpha_benchmark`: level used to define the effect with
 #'       33 percent power in the original study (default `alpha`); `power`
 #'       (default 1/3).}
-#'     \item{`BF_JZS`, `BFs`}{`gamma`: evidence threshold. A value given
-#'       here replaces the calibrated threshold.}
+#'     \item{`BF_JZS`, `BF_meta`, `BFs`}{`gamma`: evidence threshold
+#'       (default 1 when `calibrated = FALSE`). A value given here replaces
+#'       the calibrated threshold.}
 #'     \item{`BFr`}{`gamma` (default 1).}
 #'     \item{`BFe`}{`gamma` (default 1), `tau` (prior standard deviation,
 #'       default 0.2).}
@@ -581,8 +591,9 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   # the overall T1E rate at alpha^2 (default 0.025^2)
   # over to calibrated versions, with thresholds computed from `alpha` by
   # calibrate_threshold():
-  #   BF_JZS  : gamma 1 -> calibrate_threshold("BF_JZS", alpha)          (2.44 for alpha = 0.025; overall T1E <= 0.025^2 for every SE)
+  #   BF_JZS  : gamma 1 -> calibrate_threshold("BF_JZS", alpha)          (1.60 for alpha = 0.025; overall T1E <= 0.025^2 for every SE)
   #   BFs     : gamma 1 -> calibrate_threshold("BFs", alpha, c) per pair (2.81 for alpha = 0.025 and c = 1; overall T1E = 0.025^2 for every c)
+  #   BF_meta : gamma 1 -> calibrate_threshold("BF_meta", alpha)         (23.7 for alpha = 0.025; overall T1E <= 0.025^2 for every SE)
   #   pScept  : golden -> 'controlled' recalibration at level alpha^2
   #   meta    : fixed-effect pooling -> unweighted Stouffer at sqrt(2)*z_{1-alpha^2}
   # Metrics already calibrated at the alpha^2 (two-trials rule,
@@ -603,7 +614,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   stopifnot(all(c("es_o", "se_o", "es_r", "se_r", "study_id") %in% names(df)))
   stopifnot(metric %in% c("significance_r","significance_agg","sum_p","consistency_cir",
                           "consistency_cio","consistency_pi","small_telescopes",
-                          "BF_JZS","BFe","BFr","BFs","pScept","snaphybrid",
+                          "BF_JZS","BF_meta","BFe","BFr","BFs","pScept","snaphybrid",
                           "equivalence","correspondence","Likratio","minimum_effect"))
 
 
@@ -979,9 +990,9 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   # JZS Bayes Factor ----
   assess_BFJZS <- function(df, gamma = 1){
 
-    # Calibrated threshold with overall T1E rate at most alpha^2 for every
-    # standard error (2.44 for one-sided alpha (at same rate of 2TR, following Rosenkranz) = 0.025), unless gamma is given
-    # explicitly (metric_args)
+    # Calibrated threshold with overall T1E rate at most alpha^2 (for a
+    # pre-specified direction) for every standard error (1.60 for
+    # alpha = 0.025), unless gamma is given explicitly (metric_args)
     if (calibrated && missing(gamma)) gamma <- calibrate_threshold("BF_JZS", alpha = alpha_level)
 
     # log JZS Bayes factor (Cauchy(0, 1) prior on the effect); the integral is
@@ -1002,25 +1013,84 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     BFJZS_ori <- mapply(compute_bfjzs, es = df$es_o, se = df$se_o)
     BFJZS_rep <- mapply(compute_bfjzs, es = df$es_r, se = df$se_r)
 
+    # Direction check (one-sided): success requires the replication estimate to
+    # have the direction of the original; evidence for an effect in the
+    # opposite direction is a failure
+    same_dir <- sign(df$es_r) == sign(df$es_o)
+
     ### Success criterion
 
     outcome_detailed <- ifelse(BFJZS_ori < log(gamma) & BFJZS_ori > log(1/gamma),
                                "Original null effect",
-                               ifelse(BFJZS_ori > log(gamma) & BFJZS_rep > log(gamma),
+                               ifelse(BFJZS_ori > log(gamma) & BFJZS_rep > log(gamma) & same_dir,
                                       "Evidence for replication success",
-                                      ifelse(BFJZS_ori > log(gamma) & BFJZS_rep < log(1/gamma),
-                                             "Evidence for replication failure",
-                                             NA_character_)))
+                                      ifelse(BFJZS_ori > log(gamma) & BFJZS_rep > log(gamma),
+                                             "Evidence for an effect opposite to the original",
+                                             ifelse(BFJZS_ori > log(gamma) & BFJZS_rep < log(1/gamma),
+                                                    "Evidence for replication failure",
+                                                    NA_character_))))
 
     outcome <- ifelse(BFJZS_ori < log(gamma) & BFJZS_ori > log(1/gamma),
                       "Inconclusive due to original null effect",
-                      ifelse(BFJZS_ori > log(gamma) & BFJZS_rep > log(gamma),
+                      ifelse(BFJZS_ori > log(gamma) & BFJZS_rep > log(gamma) & same_dir,
                              "Replication success",
-                             ifelse(BFJZS_ori > log(gamma) & BFJZS_rep < log(1/gamma),
+                             ifelse(BFJZS_ori > log(gamma) &
+                                      (BFJZS_rep > log(gamma) | BFJZS_rep < log(1/gamma)),
                                     "Replication failure",
                                     NA_character_)))
-
     data.frame(outcome=outcome, outcome_detailed=outcome_detailed, quantitative_value = exp(BFJZS_rep))
+  }
+
+  # Fixed-effect meta-analytic Bayes factor ----
+  # Rouder and Morey (2011); Verhagen and Wagenmakers (2014). H0: common effect
+  # theta = 0 versus H1: theta ~ Cauchy(0, 1), the same effect in the original
+  # and replication studies. With normal likelihoods, the product of the two
+  # likelihoods factorises into a term that does not depend on theta and the
+  # likelihood of the inverse-variance pooled estimate, so the Bayes factor is
+  # the JZS Bayes factor of the pooled estimate (computed by .bfjzs_log(), see helper.R).
+  assess_BFmeta <- function(df, gamma = 1){
+
+    # Calibrated threshold with overall T1E rate at most alpha^2 for every
+    # standard error of the pooled estimate (23.7 for alpha = 0.025), unless
+    # gamma is given explicitly (metric_args)
+    if (calibrated && missing(gamma)) gamma <- calibrate_threshold("BF_meta", alpha = alpha_level)
+
+    ok   <- is.finite(df$es_o) & is.finite(df$se_o) & df$se_o > 0 &
+      is.finite(df$es_r) & is.finite(df$se_r) & df$se_r > 0
+    w_o  <- 1 / df$se_o^2
+    w_r  <- 1 / df$se_r^2
+    es_p <- (w_o * df$es_o + w_r * df$es_r) / (w_o + w_r)   # pooled estimate
+    se_p <- sqrt(1 / (w_o + w_r))                           # its standard error
+
+    logBF <- rep(NA_real_, nrow(df))
+    if (any(ok)) {
+      logBF[ok] <- mapply(function(es, se) tryCatch(.bfjzs_log(es, se), error = function(e) NA_real_),
+                          es_p[ok], se_p[ok], USE.NAMES = FALSE)
+    }
+
+    # One-sided: success requires the pooled estimate to have the direction of
+    # the original; evidence for a pooled effect in the opposite direction is a
+    # failure
+    same_dir <- sign(es_p) == sign(df$es_o)
+
+    ### Success criterion
+
+    outcome_detailed <- ifelse(is.na(logBF), NA_character_,
+                               ifelse(logBF > log(gamma) & same_dir,
+                                      "Evidence for a pooled effect in the direction of the original",
+                                      ifelse(logBF > log(gamma),
+                                             "Evidence for a pooled effect opposite to the original",
+                                             ifelse(logBF < log(1/gamma),
+                                                    "Evidence for no pooled effect",
+                                                    "Inconclusive evidence"))))
+
+    outcome <- ifelse(is.na(logBF), NA_character_,
+                      ifelse(logBF > log(gamma) & same_dir, "Replication success",
+                             ifelse(logBF > log(gamma) | logBF < log(1/gamma), "Replication failure",
+                                    "Inconclusive")))
+
+    data.frame(outcome = outcome, outcome_detailed = outcome_detailed,
+               quantitative_value = exp(logBF))
   }
 
   # Equality of effect Bayes Factor ----
@@ -1735,6 +1805,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     consistency_pi   = assess_rep_consistency_with_pi,
     small_telescopes = assess_small_telescopes,
     BF_JZS           = assess_BFJZS,
+    BF_meta          = assess_BFmeta,
     BFe              = assess_BFe,
     BFr              = assess_BFr,
     BFs              = assess_BFs,
@@ -1802,7 +1873,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   names(wide) <- gsub("^outcome\\.(.+)$",           "\\1_outcome", names(wide))
   names(wide) <- gsub("^outcome_detailed\\.(.+)$",  "\\1_outcome_detailed", names(wide))
 
-  bf_metrics <- c("BF_JZS", "BFe", "BFr", "BFs", "snaphybrid")
+  bf_metrics <- c("BF_JZS", "BF_meta", "BFe", "BFr", "BFs", "snaphybrid")
   for (m in metric) {
     wide[[paste0(m, "_type")]] <- ifelse(m %in% bf_metrics, "Bayes factor", "p-value")
   }

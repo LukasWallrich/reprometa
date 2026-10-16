@@ -65,9 +65,14 @@ implemented. The thresholds are computed from `alpha` with
   \item `"significance_agg"` uses an unweighted Stouffer combination with
     threshold \eqn{\sqrt{2} z_{1-\alpha^2}};
   \item `"BF_JZS"` uses the Bayes-factor threshold
-    `calibrate_threshold("BF_JZS", alpha)` (2.35 for alpha = 0.025);
+    `calibrate_threshold("BF_JZS", alpha)` (2.44 for alpha = 0.025), for
+    which the overall T1E rate is at most \eqn{\alpha^2} for every
+    standard error;
   \item `"BFs"` uses the Bayes-factor threshold
-    `calibrate_threshold("BFs", alpha)` (2.81 for alpha = 0.025); and
+    `calibrate_threshold("BFs", alpha, c)` computed from the variance
+    ratio \eqn{c = v_o / v_r} of each pair (2.81 for
+    alpha = 0.025 and c = 1), which gives an overall T1E rate of exactly
+    \eqn{\alpha^2} for every pair; and
   \item `"pScept"` uses the controlled rather than the golden
     recalibration at level `alpha`.
 }

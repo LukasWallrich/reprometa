@@ -15,11 +15,15 @@ calibrate_threshold(
 
 \item{alpha}{Numeric vector of one-sided levels in (0, 0.5). Default 0.025.}
 
-\item{c}{Variance ratio \eqn{\sigma_o^2 / \sigma_r^2} used for the
-`"BFs"` calibration. Default 1 (equal precision).}
+\item{c}{Variance ratio \eqn{c = \sigma_o^2 / \sigma_r^2} used for the
+`"BFs"` calibration (ignored for the other metrics). A vector gives one
+threshold per value; [assess_replication_outcome()] uses the variance
+ratio of each pair. Default 1 (equal variances).}
 }
 \value{
-Numeric vector of thresholds, one per value of `alpha`.
+Numeric vector of thresholds, one per value of `alpha` (for
+  `"BFs"`, one per combination of `alpha` and `c`, recycled to the longer
+  of the two).
 }
 \description{
 Computes, for a one-sided level \eqn{\alpha}, the success threshold of a
@@ -35,17 +39,23 @@ can be recalibrated at every value of \eqn{\alpha}.
     \eqn{z_o + z_r}: \eqn{\sqrt{2} z_{1-\alpha^2}}.}
   \item{`"sum_p"`}{Threshold for the sum of the two one-sided p-values:
     \eqn{\alpha \sqrt{2}}, since \eqn{P(p_o + p_r \le s) = s^2 / 2}.}
-  \item{`"BF_JZS"`}{Threshold \eqn{\gamma} such that
-    \eqn{P(BF_o > \gamma) P(BF_r > \gamma) = \alpha^2} under the null
-    hypothesis with standard errors equal to one. Because the Bayes factor
-    is symmetric in \eqn{z} and increases with \eqn{|z|}, this holds when
-    \eqn{P(|z| > z_\gamma) = \alpha}, i.e. \eqn{z_\gamma = z_{1-\alpha/2}},
-    so \eqn{\gamma} is the JZS Bayes factor at \eqn{z_{1-\alpha/2}}
-    (one numerical integral, no root finding).}
+  \item{`"BF_JZS"`}{Smallest threshold \eqn{\gamma} for which
+    (\eqn{P(BF_o > \gamma)} and \eqn{P(BF_r > \gamma)}) \eqn(\leq \alpha^2)
+    under the null hypothesis for every standard error, so that the overall
+    T1E rate is at most \eqn{\alpha^2}. With the Cauchy(0, 1) prior on the
+    effect, the critical \eqn{|z|} at which the Bayes factor equals
+    \eqn{\gamma} depends on the standard error, so no single \eqn{\gamma}
+    gives controls the overall T1E to \eqn{\alpha^2} exactly for every study.
+    The threshold \eqn{\gamma} is found by minimising the critical \eqn{|z|}
+    over the standard error and root finding on \eqn{\gamma}.}
   \item{`"BFs"`}{Threshold \eqn{\gamma} for the inverted sceptical Bayes
-    factor such that \eqn{P(1/BF_S > \gamma) = \alpha^2} over all study
-    pairs; pairs for which the sceptical Bayes factor does not exist count
-    as non-successes, as in [assess_replication_outcome()]. For a given
+    factor such that \eqn{P(1/BF_S > \gamma) = \alpha^2} for a pair of
+    studies with variance ratio \eqn{c}; pairs for which the sceptical Bayes
+    factor does not exist count as non-successes, as in
+    [assess_replication_outcome()]. The T1E rate depends on the data only
+    through \eqn{c}, so a threshold computed from the pair's own \eqn{c}
+    gives exactly \eqn{\alpha^2} for every pair, whereas a single threshold
+    does so only at one value of \eqn{c} (e.g., \eqn{c} = 1). For a given
     \eqn{z_o} the success region in \eqn{z_r} is available in closed form
     (Pawel and Held, 2022), so the T1E is a one-dimensional
     integral and \eqn{\gamma} is found by root finding, without simulation.}
@@ -53,8 +63,9 @@ can be recalibrated at every value of \eqn{\alpha}.
 Results are cached, so repeated calls with the same arguments are fast.
 }
 \examples{
-calibrate_threshold("BF_JZS", alpha = 0.025)             # 2.35
-calibrate_threshold("BFs", alpha = c(0.01, 0.025, 0.05)) # 4.38 2.81 1.98
+calibrate_threshold("BF_JZS", alpha = 0.025)             # 2.44
+calibrate_threshold("BFs", alpha = c(0.01, 0.025, 0.05)) # 4.38 2.81 1.98 (c = 1)
+calibrate_threshold("BFs", alpha = 0.025, c = c(0.25, 1, 4)) # 3.57 2.81 1.58
 }
 \references{
 Pawel, S., & Held, L. (2022). The sceptical Bayes factor for the
