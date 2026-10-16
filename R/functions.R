@@ -432,9 +432,14 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
 #'     \item `"significance_agg"` uses an unweighted Stouffer combination with
 #'       threshold \eqn{\sqrt{2} z_{1-\alpha^2}};
 #'     \item `"BF_JZS"` uses the Bayes-factor threshold
-#'       `calibrate_threshold("BF_JZS", alpha)` (2.35 for alpha = 0.025);
+#'       `calibrate_threshold("BF_JZS", alpha)` (2.44 for alpha = 0.025), for
+#'       which the overall T1E rate is at most \eqn{\alpha^2} for every
+#'       standard error;
 #'     \item `"BFs"` uses the Bayes-factor threshold
-#'       `calibrate_threshold("BFs", alpha)` (2.81 for alpha = 0.025); and
+#'       `calibrate_threshold("BFs", alpha, c)` computed from the variance
+#'       ratio \eqn{c = v_o / v_r} of each pair (2.81 for
+#'       alpha = 0.025 and c = 1), which gives an overall T1E rate of exactly
+#'       \eqn{\alpha^2} for every pair; and
 #'     \item `"pScept"` uses the controlled rather than the golden
 #'       recalibration at level `alpha`.
 #'   }
@@ -576,9 +581,9 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   # the overall T1E rate at alpha^2 (default 0.025^2)
   # over to calibrated versions, with thresholds computed from `alpha` by
   # calibrate_threshold():
-  #   BF_JZS  : gamma 1 -> calibrate_threshold("BF_JZS", alpha)  (2.35 at 0.025)
-  #   BFs     : gamma 1 -> calibrate_threshold("BFs", alpha)     (2.81 at 0.025)
-  #   pScept  : golden -> controlled recalibration at level alpha
+  #   BF_JZS  : gamma 1 -> calibrate_threshold("BF_JZS", alpha)          (2.44 for alpha = 0.025; overall T1E <= 0.025^2 for every SE)
+  #   BFs     : gamma 1 -> calibrate_threshold("BFs", alpha, c) per pair (2.81 for alpha = 0.025 and c = 1; overall T1E = 0.025^2 for every c)
+  #   pScept  : golden -> 'controlled' recalibration at level alpha^2
   #   meta    : fixed-effect pooling -> unweighted Stouffer at sqrt(2)*z_{1-alpha^2}
   # Metrics already calibrated at the alpha^2 (two-trials rule,
   # sum of p-values) use `alpha` directly.
@@ -974,17 +979,14 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   # JZS Bayes Factor ----
   assess_BFJZS <- function(df, gamma = 1){
 
-    # Calibrated threshold with overall T1E = alpha^2 (2.35 for alpha = 0.025),
-    # unless gamma is given explicitly (metric_args)
+    # Calibrated threshold with overall T1E rate at most alpha^2 for every
+    # standard error (2.44 for one-sided alpha (at same rate of 2TR, following Rosenkranz) = 0.025), unless gamma is given
+    # explicitly (metric_args)
     if (calibrated && missing(gamma)) gamma <- calibrate_threshold("BF_JZS", alpha = alpha_level)
 
-    # Computes integrand of the likelihood and the Cauchy prior (JZS prior)
-    integrate_jzs <- function(theta, es, se){
-      stats::dnorm(x = es, mean = theta, sd = se) *
-        stats::dcauchy(theta, location = 0, scale = 1)
-    }
-
-    # Function for computing vectorized integral. Divide by marginal likelihood under the null to obtain BF
+    # log JZS Bayes factor (Cauchy(0, 1) prior on the effect); the integral is
+    # computed by .bfjzs_log() over es +/- 40 se, which stays accurate for
+    # very small standard errors
     compute_bfjzs <- function(es, se) {
 
       # Handle missing or invalid inputs
@@ -994,17 +996,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
         return(NA_real_)
       }
 
-      # Numerical integration with error handling
-      bf <- tryCatch({
-
-        log(stats::integrate(integrate_jzs, lower = -Inf, upper = Inf,
-                             es = es, se = se)$value) -
-          log(stats::dnorm(x = es, mean = 0, sd = se))
-      }, error = function(e) {
-        NA_real_
-      })
-
-      bf
+      tryCatch(.bfjzs_log(es, se), error = function(e) NA_real_)
     }
 
     BFJZS_ori <- mapply(compute_bfjzs, es = df$es_o, se = df$se_o)
@@ -1122,10 +1114,18 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
 
   assess_BFs <- function(df, gamma = 1){
 
-    # Calibrated threshold with overall T1E = alpha^2 (2.81 for alpha = 0.025);
-    # pairs without a sceptical Bayes factor (NaN) count as non-successes.
+    # Calibrated threshold: the T1E rate of the sceptical Bayes factor depends
+    # only on the variance ratio c = se_o^2 / se_r^2, so the threshold is
+    # computed for every pair from its own c, which gives an overall T1E rate
+    # of exactly alpha^2 for every pair (2.81 for alpha = 0.025 and c = 1).
     # An explicitly given gamma (metric_args) replaces the calibrated one.
-    if (calibrated && missing(gamma)) gamma <- calibrate_threshold("BFs", alpha = alpha_level)
+    # Pairs without a sceptical Bayes factor (NaN) count as non-successes.
+    if (calibrated && missing(gamma)) {
+      c_vr  <- df$se_o^2 / df$se_r^2
+      ok    <- is.finite(c_vr) & c_vr > 0
+      gamma <- rep(NA_real_, nrow(df))
+      if (any(ok)) gamma[ok] <- calibrate_threshold("BFs", alpha = alpha_level, c = c_vr[ok])
+    }
 
     compute_BFs <- function(to, so, tr, sr){
       if(any(is.na(c(to, so, tr, sr))) ||

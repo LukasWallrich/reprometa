@@ -430,8 +430,10 @@ hybrid_snap <- function(es, se, alpha=0.025, sm=0.1, me=0.3, la=0.5) {
 #'
 #' @param metric One of `"significance_agg"`, `"sum_p"`, `"BF_JZS"` or `"BFs"`.
 #' @param alpha Numeric vector of one-sided levels in (0, 0.5). Default 0.025.
-#' @param c Variance ratio \eqn{\sigma_o^2 / \sigma_r^2} used for the
-#'   `"BFs"` calibration. Default 1 (equal precision).
+#' @param c Variance ratio \eqn{c = \sigma_o^2 / \sigma_r^2} used for the
+#'   `"BFs"` calibration (ignored for the other metrics). A vector gives one
+#'   threshold per value; [assess_replication_outcome()] uses the variance
+#'   ratio of each pair. Default 1 (equal variances).
 #'
 #' @details
 #' \describe{
@@ -439,24 +441,32 @@ hybrid_snap <- function(es, se, alpha=0.025, sm=0.1, me=0.3, la=0.5) {
 #'     \eqn{z_o + z_r}: \eqn{\sqrt{2} z_{1-\alpha^2}}.}
 #'   \item{`"sum_p"`}{Threshold for the sum of the two one-sided p-values:
 #'     \eqn{\alpha \sqrt{2}}, since \eqn{P(p_o + p_r \le s) = s^2 / 2}.}
-#'   \item{`"BF_JZS"`}{Threshold \eqn{\gamma} such that
-#'     \eqn{P(BF_o > \gamma) P(BF_r > \gamma) = \alpha^2} under the null
-#'     hypothesis with standard errors equal to one. Because the Bayes factor
-#'     is symmetric in \eqn{z} and increases with \eqn{|z|}, this holds when
-#'     \eqn{P(|z| > z_\gamma) = \alpha}, i.e. \eqn{z_\gamma = z_{1-\alpha/2}},
-#'     so \eqn{\gamma} is the JZS Bayes factor at \eqn{z_{1-\alpha/2}}
-#'     (one numerical integral, no root finding).}
+#'   \item{`"BF_JZS"`}{Smallest threshold \eqn{\gamma} for which
+#'     (\eqn{P(BF_o > \gamma)} and \eqn{P(BF_r > \gamma)}) \eqn(\leq \alpha^2)
+#'     under the null hypothesis for every standard error, so that the overall
+#'     T1E rate is at most \eqn{\alpha^2}. With the Cauchy(0, 1) prior on the
+#'     effect, the critical \eqn{|z|} at which the Bayes factor equals
+#'     \eqn{\gamma} depends on the standard error, so no single \eqn{\gamma}
+#'     gives controls the overall T1E to \eqn{\alpha^2} exactly for every study.
+#'     The threshold \eqn{\gamma} is found by minimising the critical \eqn{|z|}
+#'     over the standard error and root finding on \eqn{\gamma}.}
 #'   \item{`"BFs"`}{Threshold \eqn{\gamma} for the inverted sceptical Bayes
-#'     factor such that \eqn{P(1/BF_S > \gamma) = \alpha^2} over all study
-#'     pairs; pairs for which the sceptical Bayes factor does not exist count
-#'     as non-successes, as in [assess_replication_outcome()]. For a given
+#'     factor such that \eqn{P(1/BF_S > \gamma) = \alpha^2} for a pair of
+#'     studies with variance ratio \eqn{c}; pairs for which the sceptical Bayes
+#'     factor does not exist count as non-successes, as in
+#'     [assess_replication_outcome()]. The T1E rate depends on the data only
+#'     through \eqn{c}, so a threshold computed from the pair's own \eqn{c}
+#'     gives exactly \eqn{\alpha^2} for every pair, whereas a single threshold
+#'     does so only at one value of \eqn{c} (e.g., \eqn{c} = 1). For a given
 #'     \eqn{z_o} the success region in \eqn{z_r} is available in closed form
 #'     (Pawel and Held, 2022), so the T1E is a one-dimensional
 #'     integral and \eqn{\gamma} is found by root finding, without simulation.}
 #' }
 #' Results are cached, so repeated calls with the same arguments are fast.
 #'
-#' @return Numeric vector of thresholds, one per value of `alpha`.
+#' @return Numeric vector of thresholds, one per value of `alpha` (for
+#'   `"BFs"`, one per combination of `alpha` and `c`, recycled to the longer
+#'   of the two).
 #'
 #' @references
 #' Pawel, S., & Held, L. (2022). The sceptical Bayes factor for the
@@ -466,14 +476,15 @@ hybrid_snap <- function(es, se, alpha=0.025, sm=0.1, me=0.3, la=0.5) {
 #' @export
 #'
 #' @examples
-#' calibrate_threshold("BF_JZS", alpha = 0.025)             # 2.35
-#' calibrate_threshold("BFs", alpha = c(0.01, 0.025, 0.05)) # 4.38 2.81 1.98
+#' calibrate_threshold("BF_JZS", alpha = 0.025)             # 2.44
+#' calibrate_threshold("BFs", alpha = c(0.01, 0.025, 0.05)) # 4.38 2.81 1.98 (c = 1)
+#' calibrate_threshold("BFs", alpha = 0.025, c = c(0.25, 1, 4)) # 3.57 2.81 1.58
 calibrate_threshold <- function(metric = c("significance_agg", "sum_p", "BF_JZS", "BFs"),
                                 alpha = 0.025, c = 1) {
   metric <- match.arg(metric)
   stopifnot(is.numeric(alpha), length(alpha) >= 1, all(is.finite(alpha)),
             all(alpha > 0 & alpha < 0.5),
-            is.numeric(c), length(c) == 1, is.finite(c), c > 0)
+            is.numeric(c), length(c) >= 1, all(is.finite(c)), all(c > 0))
 
   key <- function(...) paste(..., sep = "|")
   switch(metric,
@@ -481,9 +492,9 @@ calibrate_threshold <- function(metric = c("significance_agg", "sum_p", "BF_JZS"
          sum_p            = alpha * sqrt(2),
          BF_JZS = vapply(alpha, function(a)
            .cal_cached(key("BF_JZS", sprintf("%.17g", a)), .calibrate_bfjzs(a)), numeric(1)),
-         BFs    = vapply(alpha, function(a)
-           .cal_cached(key("BFs", sprintf("%.17g", c), sprintf("%.17g", a)),
-                       .calibrate_bfs(a, c)), numeric(1))
+         BFs    = mapply(function(a, cc)
+           .cal_cached(key("BFs", sprintf("%.17g", cc), sprintf("%.17g", a)),
+                       .calibrate_bfs(a, cc)), alpha, c, USE.NAMES = FALSE)
   )
 }
 
@@ -498,15 +509,42 @@ calibrate_threshold <- function(metric = c("significance_agg", "sum_p", "BF_JZS"
   get(key, envir = .cal_cache, inherits = FALSE)
 }
 
-# JZS Bayes factor (Cauchy(0, 1) prior) for an estimate z with standard error 1
-.bfjzs_unit <- function(z) {
-  stats::integrate(function(theta) stats::dnorm(z, theta, 1) * stats::dcauchy(theta, 0, 1),
-                   lower = -Inf, upper = Inf, rel.tol = 1e-10)$value /
-    stats::dnorm(z, 0, 1)
+# log JZS Bayes factor BF10 (Cauchy(0, 1) prior on the effect) for an
+# estimate es with standard error se. The integrand is scaled by its value at
+# es (no overflow for large z) and integrated over es +/- 40 se, where the
+# likelihood has its mass; integrating over the real line can miss the peak
+# when se is small.
+.bfjzs_log <- function(es, se) {
+  lf <- function(t) stats::dnorm(es, t, se, log = TRUE) + stats::dcauchy(t, 0, 1, log = TRUE)
+  m  <- lf(es)
+  I  <- stats::integrate(function(t) exp(lf(t) - m),
+                         lower = es - 40 * se, upper = es + 40 * se,
+                         rel.tol = 1e-10)$value
+  m + log(I) - stats::dnorm(es, 0, se, log = TRUE)
 }
 
-# P(BF_o > gamma) = P(BF_r > gamma) = alpha  <=>  gamma = BF(z_{1 - alpha/2})
-.calibrate_bfjzs <- function(alpha) .bfjzs_unit(stats::qnorm(1 - alpha / 2))
+# Critical |z| at which the JZS Bayes factor equals gamma (> 1) for standard
+# error se. BF10 < 1 at z = 0 and increases with |z|, so the root is unique.
+.bfjzs_crit <- function(se, gamma) {
+  stats::uniroot(function(z) .bfjzs_log(z * se, se) - log(gamma),
+                 lower = 0, upper = 50, tol = 1e-10)$root
+}
+
+# Smallest gamma for which the per-study T1E rate P(BF > gamma) = P(|z| > z_crit)
+# is at most alpha for every standard error (worst case over se), so that the
+# overall T1E rate of the two studies is at most alpha^2
+.calibrate_bfjzs <- function(alpha) {
+  worst_rate <- function(lg) {
+    zmin <- stats::optimize(function(ls) .bfjzs_crit(exp(ls), exp(lg)),
+                            interval = log(c(0.01, 10)), tol = 1e-8)$objective
+    2 * stats::pnorm(zmin, lower.tail = FALSE)
+  }
+  lo <- log(1 + 1e-6)
+  if (worst_rate(lo) <= alpha) return(1)   # very large alpha: any gamma > 1 suffices
+  exp(stats::uniroot(function(lg) worst_rate(lg) - alpha,
+                     lower = lo, upper = log(1e6), tol = 1e-10)$root)
+}
+
 
 # log Bayes factors of BayesRep::BFo() and BayesRep::BFr() (z-scale versions)
 .bfs_logBFo <- function(zo, g) {
