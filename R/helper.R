@@ -442,7 +442,7 @@ hybrid_snap <- function(es, se, alpha=0.025, sm=0.1, me=0.3, la=0.5) {
 #'   \item{`"sum_p"`}{Threshold for the sum of the two one-sided p-values:
 #'     \eqn{\alpha \sqrt{2}}, since \eqn{P(p_o + p_r \le s) = s^2 / 2}.}
 #'   \item{`"BF_JZS"`}{Smallest threshold \eqn{\gamma} for which
-#'     (\eqn{P(BF_o > \gamma)} and \eqn{P(BF_r > \gamma)}) \eqn(\leq \alpha^2)
+#'     (\eqn{P(BF_o > \gamma)} and \eqn{P(BF_r > \gamma)}) \eqn{(\leq \alpha^2)}
 #'     under the null hypothesis for every standard error, so that the overall
 #'     T1E rate is at most \eqn{\alpha^2}. With the Cauchy(0, 1) prior on the
 #'     effect, the critical \eqn{z} at which the Bayes factor equals
@@ -454,7 +454,7 @@ hybrid_snap <- function(es, se, alpha=0.025, sm=0.1, me=0.3, la=0.5) {
 #'     fixed-effect meta-analytic Bayes factor, whose success also requires
 #'     the pooled estimate to have the direction of the original, gives
 #'     \eqn{P(BF > \gamma) \le \alpha^2} under the null hypothesis for every
-#'     standard error of the pooled estimate.
+#'     standard error of the pooled estimate.}
 #'   \item{`"BFs"`}{Threshold \eqn{\gamma} for the inverted sceptical Bayes
 #'     factor such that \eqn{P(1/BF_S > \gamma) = \alpha^2} for a pair of
 #'     studies with variance ratio \eqn{c}; pairs for which the sceptical Bayes

@@ -5,13 +5,13 @@
 \title{calibrate_threshold: Success thresholds with overall T1E rate \eqn{\alpha^2}}
 \usage{
 calibrate_threshold(
-  metric = c("significance_agg", "sum_p", "BF_JZS", "BFs"),
+  metric = c("significance_agg", "sum_p", "BF_JZS", "BF_meta", "BFs"),
   alpha = 0.025,
   c = 1
 )
 }
 \arguments{
-\item{metric}{One of `"significance_agg"`, `"sum_p"`, `"BF_JZS"` or `"BFs"`.}
+\item{metric}{One of `"significance_agg"`, `"sum_p"`, `"BF_JZS"`,`"BF_meta"` or `"BFs"`.}
 
 \item{alpha}{Numeric vector of one-sided levels in (0, 0.5). Default 0.025.}
 
@@ -40,14 +40,19 @@ can be recalibrated at every value of \eqn{\alpha}.
   \item{`"sum_p"`}{Threshold for the sum of the two one-sided p-values:
     \eqn{\alpha \sqrt{2}}, since \eqn{P(p_o + p_r \le s) = s^2 / 2}.}
   \item{`"BF_JZS"`}{Smallest threshold \eqn{\gamma} for which
-    (\eqn{P(BF_o > \gamma)} and \eqn{P(BF_r > \gamma)}) \eqn(\leq \alpha^2)
+    (\eqn{P(BF_o > \gamma)} and \eqn{P(BF_r > \gamma)}) \eqn{(\leq \alpha^2)}
     under the null hypothesis for every standard error, so that the overall
     T1E rate is at most \eqn{\alpha^2}. With the Cauchy(0, 1) prior on the
-    effect, the critical \eqn{|z|} at which the Bayes factor equals
+    effect, the critical \eqn{z} at which the Bayes factor equals
     \eqn{\gamma} depends on the standard error, so no single \eqn{\gamma}
     gives controls the overall T1E to \eqn{\alpha^2} exactly for every study.
-    The threshold \eqn{\gamma} is found by minimising the critical \eqn{|z|}
+    The threshold \eqn{\gamma} is found by minimising the critical \eqn{z}
     over the standard error and root finding on \eqn{\gamma}.}
+  \item{`"BF_meta"`}{Smallest threshold \eqn{\gamma} for which the
+    fixed-effect meta-analytic Bayes factor, whose success also requires
+    the pooled estimate to have the direction of the original, gives
+    \eqn{P(BF > \gamma) \le \alpha^2} under the null hypothesis for every
+    standard error of the pooled estimate.}
   \item{`"BFs"`}{Threshold \eqn{\gamma} for the inverted sceptical Bayes
     factor such that \eqn{P(1/BF_S > \gamma) = \alpha^2} for a pair of
     studies with variance ratio \eqn{c}; pairs for which the sceptical Bayes
@@ -63,7 +68,8 @@ can be recalibrated at every value of \eqn{\alpha}.
 Results are cached, so repeated calls with the same arguments are fast.
 }
 \examples{
-calibrate_threshold("BF_JZS", alpha = 0.025)             # 2.44
+calibrate_threshold("BF_JZS", alpha = 0.025)             # 1.60
+calibrate_threshold("BF_meta", alpha = 0.025)            # 23.7
 calibrate_threshold("BFs", alpha = c(0.01, 0.025, 0.05)) # 4.38 2.81 1.98 (c = 1)
 calibrate_threshold("BFs", alpha = 0.025, c = c(0.25, 1, 4)) # 3.57 2.81 1.58
 }

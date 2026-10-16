@@ -37,7 +37,12 @@ to calculate. Available metrics are:
   \item{`"small_telescopes"`}{Small-telescopes criterion based on the
     effect that the original study had 33 percent power to detect.}
   \item{`"BF_JZS"`}{Independent Jeffreys-Zellner-Siow Bayes-factor
-    criterion.}
+    criterion: both Bayes factors above the threshold and the two
+    estimates in the same direction.}
+  \item{`"BF_meta"`}{Fixed-effect meta-analytic Bayes factor: JZS Bayes
+    factor for an effect common to the original and replication studies,
+    computed from their inverse-variance pooled estimate; success also
+    requires the pooled estimate to have the direction of the original.}
   \item{`"BFe"`}{Equality-of-effect-sizes Bayes factor.}
   \item{`"BFr"`}{Replication Bayes factor.}
   \item{`"BFs"`}{Sceptical Bayes factor.}
@@ -65,9 +70,13 @@ implemented. The thresholds are computed from `alpha` with
   \item `"significance_agg"` uses an unweighted Stouffer combination with
     threshold \eqn{\sqrt{2} z_{1-\alpha^2}};
   \item `"BF_JZS"` uses the Bayes-factor threshold
-    `calibrate_threshold("BF_JZS", alpha)` (2.44 for alpha = 0.025), for
-    which the overall T1E rate is at most \eqn{\alpha^2} for every
-    standard error;
+    `calibrate_threshold("BF_JZS", alpha)` (1.60 for alpha = 0.025), for
+    which the overall T1E rate is at most \eqn{\alpha^2} (for a
+    pre-specified direction) for every standard error;
+  \item `"BF_meta"` uses the Bayes-factor threshold
+    `calibrate_threshold("BF_meta", alpha)` (23.7 for alpha = 0.025),
+    for which the overall T1E rate is at most \eqn{\alpha^2} for every
+    standard error of the pooled estimate;
   \item `"BFs"` uses the Bayes-factor threshold
     `calibrate_threshold("BFs", alpha, c)` computed from the variance
     ratio \eqn{c = v_o / v_r} of each pair (2.81 for
@@ -86,7 +95,7 @@ probability 0.75), which can be changed with `metric_args`.}
 
 \item{alpha}{One-sided significance level of the Family 1 metrics
 (`"significance_r"`, `"significance_agg"`, `"sum_p"`, `"pScept"`, and,
-when `calibrated = TRUE`, `"BF_JZS"` and `"BFs"`). The overall T1E rate
+when `calibrated = TRUE`, `"BF_JZS"`, `"BF_meta"` and `"BFs"`). The overall T1E rate
 targeted by the calibrated versions is `alpha^2`. Default 0.025.
 Family 2 metrics keep their own conventional levels.}
 
@@ -107,8 +116,9 @@ are:
     above); `alpha_benchmark`: level used to define the effect with
     33 percent power in the original study (default `alpha`); `power`
     (default 1/3).}
-  \item{`BF_JZS`, `BFs`}{`gamma`: evidence threshold. A value given
-    here replaces the calibrated threshold.}
+  \item{`BF_JZS`, `BF_meta`, `BFs`}{`gamma`: evidence threshold
+    (default 1 when `calibrated = FALSE`). A value given here replaces
+    the calibrated threshold.}
   \item{`BFr`}{`gamma` (default 1).}
   \item{`BFe`}{`gamma` (default 1), `tau` (prior standard deviation,
     default 0.2).}
