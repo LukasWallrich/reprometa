@@ -620,8 +620,8 @@ calibrate_threshold <- function(metric = c("significance_agg", "sum_p", "BF_JZS"
   lg   <- log(gamma)
   zmin <- stats::uniroot(function(z) .bfs_logBFo(z, z^2 - 1) + lg,
                          c(1 + 1e-9, 60), tol = 1e-12)$root
-  2 * stats::integrate(function(z) stats::dnorm(z) * .bfs_success_given_zo(z, gamma, c),
-                       lower = zmin, upper = max(zmin + 1, 20), rel.tol = 1e-9)$value
+  stats::integrate(function(z) stats::dnorm(z) * .bfs_success_given_zo(z, gamma, c),
+                   lower = zmin, upper = max(zmin + 1, 20), rel.tol = 1e-9)$value
 }
 
 # Root finding on log(gamma): the T1E rate decreases in gamma, each

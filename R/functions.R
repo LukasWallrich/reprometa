@@ -179,7 +179,11 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
                                  # Used to gate pScept / BFr on the cor scale
                                  # Without this argument these metrics fall back to
                                  # a sign-match approximation.
-                                 pattern_met=NULL) {
+                                 pattern_met=NULL,
+                                 # Optional: TRUE if the replication effect is in the direction of the
+                                 # original claim (e.g., SCORE's repli_effect_direction). Used by the
+                                 # metrics that combine p-values on the Fisher-z scale.
+                                 same_direction=NULL) {
 
   scale <- match.arg(scale)
   stopifnot(is.character(effectsize), all(effectsize %in% c("COR","SMD","LOGOR","ZCOR")))
@@ -204,15 +208,19 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
     sqrt((1 - r^2) / size)
   }
 
-  # Same effective df/size concept translated to the Fisher-z SE, 1/sqrt(n_eff-3)
-  compute_se_score_z <- function(r, stat_type, dof, effective_df,
-                                 sample_size, effective_sample_size) {
-    if (is.na(r) || is.na(stat_type)) return(NA_real_)
-    df1  <- ifelse(is.na(effective_df), dof, effective_df)
-    size <- ifelse(is.na(effective_sample_size), sample_size, effective_sample_size)
-    n_eff <- if (stat_type == "t" && !is.na(df1)) df1 else size
-    if (is.na(n_eff) || n_eff <= 3) return(NA_real_)
-    1 / sqrt(n_eff - 3)
+  # Fisher-z SE, in order of availability:
+  #  1. degrees of freedom of a t test (effective df if reported, else dof):
+  #     df1 = n - 2 - k with k covariates and Var(atanh(r)) = 1 / (n - 3 - k),
+  #     so se = 1 / sqrt(df1 - 1).
+  #  2. effective sample size: se = 1 / sqrt(n_eff - 3)
+  #  3. sample size (the default without additional data, default when additional arguments are empty)
+  compute_se_z <- function(r, n, stat_type, dof, effective_df, effective_sample_size) {
+    df1 <- ifelse(is.na(effective_df), dof, effective_df)
+    if (!is.na(stat_type) && stat_type == "t" && !is.na(df1) && df1 > 1)
+      return(list(se = 1 / sqrt(df1 - 1), src = "df"))
+    if (!is.na(effective_sample_size) && effective_sample_size > 3)
+      return(list(se = 1 / sqrt(effective_sample_size - 3), src = "effective_n"))
+    list(se = sqrt(1 / n + (6 - r^2) / (2 * n^2)), src = "n")
   }
 
   # Checks if the SE-adjustment metadata supplied at all (e.g., if provided p-values are two-sided resp. one-sided they need to be adjusted)
@@ -231,10 +239,12 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
       if (is.null(r_o) || is.null(n_o) || is.null(r_r) || is.null(n_r))
         stop("effectsize 'COR' requires r_o, n_o, r_r, n_r - missing for study ", i)
 
+      src_o <- src_r <- "n"
       if (scale == "cor") {
         es_o_i <- r_o[i]
         es_r_i <- r_r[i]
         if (have_se_meta) {
+          src_o <- src_r <- "test"
           # test-type-dependent SE
           se_o_i <- compute_se_score(r_o[i], pad(stat_type_o)[i], pad(dof_o)[i],
                                      pad(effective_df_o)[i], n_o[i],
@@ -247,27 +257,24 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
           se_r_i <- sqrt((1 - r_r[i]^2) / (n_r[i] - 3))
         }
       } else {
-        # Exact Fisher-z transform (no Hedges-Olkin bias correction on the standard
-        # error): containment checks against atanh()-transformed CI bounds only if es is atanh(r) exactly.
+        # Exact Fisher-z transform containment checks against atanh()-transformed
+        # CI bounds only if es is atanh(r) exactly.
         es_o_i <- atanh(r_o[i])
         es_r_i <- atanh(r_r[i])
-        if (have_se_meta) {
-          # effective df/size concept translated to the Fisher-z scale
-          se_o_i <- compute_se_score_z(r_o[i], pad(stat_type_o)[i], pad(dof_o)[i],
-                                       pad(effective_df_o)[i], n_o[i],
-                                       pad(effective_sample_size_o)[i])
-          se_r_i <- compute_se_score_z(r_r[i], pad(stat_type_r)[i], pad(dof_r)[i],
-                                       pad(effective_df_r)[i], n_r[i],
-                                       pad(effective_sample_size_r)[i])
-        } else {
-          se_o_i <- sqrt(1 / n_o[i] + (6 - r_o[i]^2) / (2 * n_o[i]^2))
-          se_r_i <- sqrt(1 / n_r[i] + (6 - r_r[i]^2) / (2 * n_r[i]^2))
-        }
+        # degrees of freedom -> effective sample size -> sample size; without
+        # test metadata this is the sample-size SE, as before
+        se_o_l <- compute_se_z(r_o[i], n_o[i], pad(stat_type_o)[i], pad(dof_o)[i],
+                               pad(effective_df_o)[i], pad(effective_sample_size_o)[i])
+        se_r_l <- compute_se_z(r_r[i], n_r[i], pad(stat_type_r)[i], pad(dof_r)[i],
+                               pad(effective_df_r)[i], pad(effective_sample_size_r)[i])
+        se_o_i <- se_o_l$se; src_o <- se_o_l$src
+        se_r_i <- se_r_l$se; src_r <- se_r_l$src
       }
 
       data.frame(es_o=es_o_i, se_o=se_o_i, es_r=es_r_i, se_r=se_r_i,
                  n_o=n_o[i], n_r=n_r[i],
-                 n1_o=NA_real_, n2_o=NA_real_, n1_r=NA_real_, n2_r=NA_real_)
+                 n1_o=NA_real_, n2_o=NA_real_, n1_r=NA_real_, n2_r=NA_real_,
+                 se_src_o=src_o, se_src_r=src_r)
 
     } else if (es == "SMD") {
       if (is.null(d_o) || is.null(d_r) || is.null(se_o) || is.null(se_r) ||
@@ -285,7 +292,8 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
 
       data.frame(es_o=es_o_i, se_o=se_o_i, es_r=es_r_i, se_r=se_r_i,
                  n_o=n1_o[i]+n2_o[i], n_r=n1_r[i]+n2_r[i],
-                 n1_o=n1_o[i], n2_o=n2_o[i], n1_r=n1_r[i], n2_r=n2_r[i])
+                 n1_o=n1_o[i], n2_o=n2_o[i], n1_r=n1_r[i], n2_r=n2_r[i],
+                 se_src_o="supplied", se_src_r="supplied")
 
     } else if (es == "LOGOR") {
       if (is.null(logor_o) || is.null(logor_r) || is.null(se_o) || is.null(se_r) ||
@@ -308,7 +316,8 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
 
       data.frame(es_o=es_o_i, se_o=se_o_i, es_r=es_r_i, se_r=se_r_i,
                  n_o=n1_o[i]+n2_o[i], n_r=n1_r[i]+n2_r[i],
-                 n1_o=n1_o[i], n2_o=n2_o[i], n1_r=n1_r[i], n2_r=n2_r[i])
+                 n1_o=n1_o[i], n2_o=n2_o[i], n1_r=n1_r[i], n2_r=n2_r[i],
+                 se_src_o="supplied", se_src_r="supplied")
 
     } else if (es == "ZCOR") {
       if (is.null(z_o) || is.null(z_r) || is.null(se_o) || is.null(se_r) || is.null(n_o) || is.null(n_r))
@@ -316,7 +325,8 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
 
       data.frame(es_o = z_o[i], se_o = se_o[i], es_r = z_r[i], se_r = se_r[i],
                  n_o = n_o[i], n_r = n_r[i],
-                 n1_o = NA_real_, n2_o = NA_real_, n1_r = NA_real_, n2_r = NA_real_)
+                 n1_o = NA_real_, n2_o = NA_real_, n1_r = NA_real_, n2_r = NA_real_,
+                 se_src_o = "supplied", se_src_r = "supplied")
     }
   }
 
@@ -325,13 +335,12 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
   rownames(df) <- NULL
   df <- df[, colSums(is.na(df)) < nrow(df)]
 
-  # Attach precomputed CI bounds on the analysis scale ----
+  # Attach precomputed CI bounds on the analysis scale
   # Input bounds are on the correlation scale
   # scale="cor"    -> attached raw
   # scale="fisherz"-> atanh()-transformed (bounds clamped just inside (-1,1) so
   #                   atanh stays finite), under es_lb_*/es_ub_* names.
-  # atanh is strictly monotonic, so CI-based assessments against the
-  # transformed bounds are identical to raw-r decisions.
+  # CI-based assessments against the transformed bounds are identical to raw-r decisions.
   if (!is.null(orig_conv_r_lb) || !is.null(repli_conv_r_lb)) {
     z_bound <- function(b) atanh(pmax(pmin(b, 1 - 1e-12), -1 + 1e-12))
     if (scale == "cor") {
@@ -347,10 +356,8 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
     }
   }
 
-  #  Attach standardized p-values (scale-free) ----
-  #  only "exact"-type original p-values are usable (if type metadata supplied)
-  #  one-tailed original p-values are doubled to two-tailed (if tails supplied)
-  #  clamped to (0,1] so ReplicationSuccess::p2z() accepts them
+  #  Attach standardized p-values (scale-free)
+  #  one-tailed original p-values are doubled to two-tailed
   if (!is.null(orig_p_value)) {
     p <- orig_p_value
     if (!is.null(orig_p_value_type)) {
@@ -367,13 +374,19 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
     df$repli_p_value <- pmin(pmax(repli_p_value, 1e-10), 1)
   }
 
-  # Attach qualitative direction/pattern flag ----
+  # Qualitative direction/pattern flag
   if (!is.null(pattern_met)) {
     df$repli_pattern_criteria_met <- pattern_met
   }
 
+  # Direction of the replication relative to the original claim
+  if (!is.null(same_direction)) {
+    df$same_direction <- as.logical(same_direction)
+  }
+
   return(df)
 }
+
 
 # Function 2: Assess replication success criteria ----
 
@@ -592,7 +605,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   # over to calibrated versions, with thresholds computed from `alpha` by
   # calibrate_threshold():
   #   BF_JZS  : gamma 1 -> calibrate_threshold("BF_JZS", alpha)          (1.60 for alpha = 0.025; overall T1E <= 0.025^2 for every SE)
-  #   BFs     : gamma 1 -> calibrate_threshold("BFs", alpha, c) per pair (2.81 for alpha = 0.025 and c = 1; overall T1E = 0.025^2 for every c)
+  #   BFs     : gamma 1 -> calibrate_threshold("BFs", alpha, c) per pair (2.36 for alpha = 0.025 and c = 1; overall T1E = 0.025^2 for every c)
   #   BF_meta : gamma 1 -> calibrate_threshold("BF_meta", alpha)         (23.7 for alpha = 0.025; overall T1E <= 0.025^2 for every SE)
   #   pScept  : golden -> 'controlled' recalibration at level alpha^2
   #   meta    : fixed-effect pooling -> unweighted Stouffer at sqrt(2)*z_{1-alpha^2}
@@ -618,6 +631,50 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
                           "equivalence","correspondence","Likratio","minimum_effect"))
 
 
+  # One-sided p-values in the direction of the original claim (Fisher-z) ----
+  # Used by the metrics that combine p-values (significance criterion,
+  # calibrated meta-analysis, sum of p-values, sceptical p-value).
+  #  * Evidence: the reported two-sided p-values (orig_p_value, repli_p_value;
+  #    exact values only) when supplied, otherwise es / se.
+  #  * Direction of the replication: same_direction when supplied, otherwise
+  #    the signs of the estimates.
+  # Returns z-values oriented so that the original claim is positive, and the
+  # corresponding one-sided p-values. Without the additional columns, this
+  # equals the previous computation from es / se.
+  oriented_p <- function(df) {
+    z_o <- abs(df$es_o / df$se_o)
+    z_r <- abs(df$es_r / df$se_r)
+    # reported p-values only for pairs with both estimates, so that all metrics
+    # are computed for the same claims
+    ok <- is.finite(z_o) & is.finite(z_r)
+    if ("orig_p_value" %in% names(df)) {
+      i <- ok & !is.na(df$orig_p_value)
+      z_o[i] <- stats::qnorm(df$orig_p_value[i] / 2, lower.tail = FALSE)
+    }
+    if ("repli_p_value" %in% names(df)) {
+      i <- ok & !is.na(df$repli_p_value)
+      z_r[i] <- stats::qnorm(df$repli_p_value[i] / 2, lower.tail = FALSE)
+    }
+    p_r_own <- stats::pnorm(z_r, lower.tail = FALSE)   # in the direction of the replication estimate
+    same_dir <- sign(df$es_o) == sign(df$es_r)
+    if ("same_direction" %in% names(df)) {
+      same_dir <- ifelse(is.na(df$same_direction), same_dir, df$same_direction)
+    }
+    z_r <- ifelse(same_dir, z_r, -z_r)
+    list(z_o = z_o, z_r = z_r,
+         p_o = stats::pnorm(z_o, lower.tail = FALSE),
+         p_r = stats::pnorm(z_r, lower.tail = FALSE),
+         p_r_own = p_r_own, same_dir = same_dir)
+  }
+
+  # SCORE pattern flag as an additional success requirement, when supplied
+  # (missing values do not block success). It can only remove successes, so
+  # the overall T1E rate stays at most alpha^2.
+  pattern_gate <- function(df) {
+    if (!"repli_pattern_criteria_met" %in% names(df)) return(rep(TRUE, nrow(df)))
+    ifelse(is.na(df$repli_pattern_criteria_met), TRUE, df$repli_pattern_criteria_met)
+  }
+
   # Significance criterion (vote counting) ----
   assess_rep_significance <- function(df, alpha = alpha_level) {
 
@@ -628,13 +685,21 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     #  decision when combined with the same-direction requirement below)
     #  Setting scale=cor and including the additional arguments (DoF, effective sample size, etc.)
     #  exactly replicates results at the same level of the original SCORE paper.
+    #  fisherz: one-sided p-values from oriented_p() (reported p-values and
+    #  same_direction when supplied, otherwise es / se), plus the pattern flag
+    #  when supplied
     if (unique(df$scale) == "cor") {
       p_o <- 2 * pnorm(abs(df$es_o / df$se_o), lower.tail = FALSE)
       p_r <- 2 * pnorm(abs(df$es_r / df$se_r), lower.tail = FALSE)
       alpha <- 2 * alpha
+      same_dir <- sign(df$es_o) == sign(df$es_r)
+      gate <- rep(TRUE, nrow(df))
     } else {
-      p_o <- zr_to_p(zr = df$es_o, se = df$se_o)
-      p_r <- zr_to_p(zr = df$es_r, se = df$se_r)
+      op <- oriented_p(df)
+      p_o <- op$p_o
+      p_r <- op$p_r_own                 # one-sided p in the direction of the replication estimate
+      same_dir <- op$same_dir
+      gate <- pattern_gate(df)
     }
 
     ### Success criterion
@@ -643,17 +708,15 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
                                "original effect is not significant",
                                ifelse(p_r >= alpha,
                                       "replication effect is not significant",
-                                      ifelse(p_r < alpha & sign(df$es_o) == sign(df$es_r),
-                                             "replication effect is significant and same direction of original",
-                                             ifelse(p_r < alpha & sign(df$es_o) != sign(df$es_r),
-                                                    "direction of effect is inconsistent",
-                                                    NA_character_))))
+                                      ifelse(!same_dir,
+                                             "direction of effect is inconsistent",
+                                             ifelse(!gate,
+                                                    "replication effect is significant, but the pattern is not met",
+                                                    "replication effect is significant and same direction of original"))))
 
     outcome <- ifelse(outcome_detailed == "original effect is not significant", "OS not significant",
-                      ifelse(outcome_detailed %in% c("replication effect is not significant",
-                                                     "direction of effect is inconsistent"), "Replication failure",
-                             ifelse(outcome_detailed == "replication effect is significant and same direction of original", "Replication success",
-                                    NA_character_)))
+                      ifelse(outcome_detailed == "replication effect is significant and same direction of original",
+                             "Replication success", "Replication failure"))
 
     data.frame(outcome=outcome, outcome_detailed=outcome_detailed, quantitative_value = p_r)
   }
@@ -665,17 +728,27 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     if (calibrated) {
       # CALIBRATED: unweighted Stouffer, exact overall T1E at alpha^2 ----
 
-      z_o <- df$es_o / df$se_o
-      z_r <- df$es_r / df$se_r
-      flip <- ifelse(!is.na(z_o) & z_o < 0, -1, 1)   # orient to the original's direction
-      z_o <- z_o * flip
-      z_r <- z_r * flip
+      if (unique(df$scale) == "fisherz") {
+        # z-values oriented to the original claim (reported p-values and
+        # same_direction when supplied, otherwise es / se)
+        op   <- oriented_p(df)
+        z_o  <- op$z_o
+        z_r  <- op$z_r
+        gate <- pattern_gate(df)
+      } else {
+        z_o <- df$es_o / df$se_o
+        z_r <- df$es_r / df$se_r
+        flip <- ifelse(!is.na(z_o) & z_o < 0, -1, 1)   # orient to the original's direction
+        z_o <- z_o * flip
+        z_r <- z_r * flip
+        gate <- rep(TRUE, nrow(df))
+      }
 
       z_sum  <- z_o + z_r
       thresh <- calibrate_threshold("significance_agg", alpha = alpha)
       p_meta <- stats::pnorm(z_sum / sqrt(2), lower.tail = FALSE)   # combined one-sided p
 
-      success <- !is.na(z_sum) & is.finite(z_sum) & (z_sum >= thresh)
+      success <- !is.na(z_sum) & is.finite(z_sum) & (z_sum >= thresh) & gate
 
       outcome_detailed <- ifelse(is.na(z_sum) | !is.finite(z_sum), NA_character_,
                                  ifelse(success,
@@ -697,10 +770,10 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     ### Calculate p-value for this metric
     p_meta <- effect_comparison$pval
 
-    # Success criterion, matching repli_binary.R's meta_success exactly:
+    # Success criterion:
     #   sig = sign(lb_b) == sign(ub_b)      (pooled CI excludes zero)
     #   dir = sign(orig_conv_r) == sign(lb_b)  (direction matches the original)
-    # NOTE: this needs signed es_o/ci_ub -- if you're feeding in abs()'d
+    # NOTE: this needs signed es_o/ci_ub if you're feeding in abs()
     # correlations this collapses to the old positive-only check, which is
     # wrong for originally-negative effects.
     sig <- sign(effect_comparison$ci_lb) == sign(effect_comparison$ci_ub)
@@ -726,38 +799,43 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   assess_sum_p <- function(df, alpha = alpha_level,
                            threshold = calibrate_threshold("sum_p", alpha = alpha)){
 
-    if ("orig_p_value"  %in% names(df)){
-      p_o <- df$orig_p_value
+    if (unique(df$scale) == "fisherz") {
+      # One-sided p-values in the direction of the original claim (reported
+      # p-values and same_direction when supplied, otherwise es / se). A
+      # replication in the opposite direction has p_r > 0.5 and cannot succeed;
+      # the pattern flag is an additional requirement when supplied.
+      op <- oriented_p(df)
+      sum_p <- op$p_o + op$p_r
+      pattern_met <- pattern_gate(df)
     } else {
-      z_o <- df$es_o / df$se_o
-      p_o <- rep(NA_real_, length(z_o))
-      p_o[is.finite(z_o)] <- ReplicationSuccess::z2p(z_o[is.finite(z_o)])
-    }
+      if ("orig_p_value"  %in% names(df)){
+        p_o <- df$orig_p_value
+      } else {
+        z_o <- df$es_o / df$se_o
+        p_o <- rep(NA_real_, length(z_o))
+        p_o[is.finite(z_o)] <- ReplicationSuccess::z2p(z_o[is.finite(z_o)])
+      }
 
-    if ("repli_p_value"  %in% names(df)){
-      p_r <- df$repli_p_value
-    } else {
-      z_r <- df$es_r / df$se_r
-      p_r <- rep(NA_real_, length(z_r))
-      p_r[is.finite(z_r)] <- ReplicationSuccess::z2p(z_r[is.finite(z_r)])
-    }
+      if ("repli_p_value"  %in% names(df)){
+        p_r <- df$repli_p_value
+      } else {
+        z_r <- df$es_r / df$se_r
+        p_r <- rep(NA_real_, length(z_r))
+        p_r[is.finite(z_r)] <- ReplicationSuccess::z2p(z_r[is.finite(z_r)])
+      }
 
-    sum_p <- (p_o / 2) + (p_r / 2)
+      sum_p <- (p_o / 2) + (p_r / 2)
+
+      ### the sum-of-p test is direction-agnostic, so AND with the qualitative
+      ### `sum_p <- both_p & repli_pattern_criteria_met`
+      pattern_met <- if ("repli_pattern_criteria_met" %in% names(df)) {
+        df$repli_pattern_criteria_met
+      } else {
+        sign(df$es_o) == sign(df$es_r)
+      }
+    }
 
     both_p <- sum_p < threshold
-
-    # both_p <- ifelse(sum_p <= 1,
-    #                  sum_p^2 / 2 < alpha^2,
-    #                  1 - (2 - sum_p)^2 / 2 < alpha^2)
-
-    ### Success criterion: the sum-of-p test is direction-agnostic, so AND with
-    ### the qualitative pattern flag -- exactly like repli_binary.R's
-    ### `sum_p <- both_p & repli_pattern_criteria_met`
-    pattern_met <- if ("repli_pattern_criteria_met" %in% names(df)) {
-      df$repli_pattern_criteria_met
-    } else {
-      sign(df$es_o) == sign(df$es_r)
-    }
 
     success <- !is.na(both_p) & !is.na(pattern_met) & both_p & pattern_met
 
@@ -861,9 +939,8 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     ### Calculate the (1 - 2 alpha) prediction interval
     pred_intervals <- compute_prediction_interval(df$es_o, df$se_o, df$se_r, alpha = alpha)
 
-    # On the correlation scale, cap the bounds to [-1, 1] -- matches
-    # repli_binary.R exactly ("these can go above 1 and below -1, so just
-    # manually capping them for now"). Not applicable on the Fisher-z scale,
+    # On the correlation scale, cap the bounds to [-1, 1].
+    # Not applicable on the Fisher-z scale,
     # where the effect size isn't bounded.
     if (unique(df$scale) == "cor") {
       pred_intervals$lower <- pmax(pred_intervals$lower, -1)
@@ -922,8 +999,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
           }
         }, r = df$es_o, n = df$n_o)
 
-      # Compare against the precomputed replication CI bounds directly --
-      # never recompute this CI, matching repli_binary.R exactly
+      # Compare against the precomputed replication CI bounds directly
       # (rescaled only when alpha != 0.025).
       ci <- rescale_ci(df$repli_conv_r_lb, df$repli_conv_r_ub, df$es_r, alpha = alpha)
       outcome_detailed <- ifelse(sign(small_effect) == 1,
@@ -1051,8 +1127,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   assess_BFmeta <- function(df, gamma = 1){
 
     # Calibrated threshold with overall T1E rate at most alpha^2 for every
-    # standard error of the pooled estimate (23.7 for alpha = 0.025), unless
-    # gamma is given explicitly (metric_args)
+    # standard error of the pooled estimate, unless gamma is given explicitly (metric_args)
     if (calibrated && missing(gamma)) gamma <- calibrate_threshold("BF_meta", alpha = alpha_level)
 
     ok   <- is.finite(df$es_o) & is.finite(df$se_o) & df$se_o > 0 &
@@ -1155,8 +1230,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
 
     ### Success criterion
 
-    # --- gate with the real direction/pattern flag, matching repli_binary.R's
-    #     `bayes_rep <- repli_pattern_criteria_met & r_bf < 1` ---
+    # `bayes_rep <- repli_pattern_criteria_met & r_bf < 1`
     pattern_met <- if ("repli_pattern_criteria_met" %in% names(df)) {
       df$repli_pattern_criteria_met
     } else {
@@ -1187,7 +1261,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     # Calibrated threshold: the T1E rate of the sceptical Bayes factor depends
     # only on the variance ratio c = se_o^2 / se_r^2, so the threshold is
     # computed for every pair from its own c, which gives an overall T1E rate
-    # of exactly alpha^2 for every pair (2.81 for alpha = 0.025 and c = 1).
+    # of exactly alpha^2 for every pair (2.36 for alpha = 0.025 and c = 1).
     # An explicitly given gamma (metric_args) replaces the calibrated one.
     # Pairs without a sceptical Bayes factor (NaN) count as non-successes.
     if (calibrated && missing(gamma)) {
@@ -1216,17 +1290,20 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
 
     ### Success criterion
 
+    same_dir <- sign(df$es_r) == sign(df$es_o)
+
     outcome_detailed <- ifelse(is.nan(BFs),
                                "Results of replication is too inconclusive to establish replication success at any level",
-                               ifelse(BFs > gamma,    "Evidence for replication success",
-                                      ifelse(BFs >= 1,        "Weak evidence for replication success",
-                                             ifelse(BFs >= 1/gamma,  "Weak evidence for replication failure",
-                                                    ifelse(BFs < 1/gamma,   "Evidence for replication failure",
-                                                           NA_character_)))))
+                               ifelse(BFs > gamma & same_dir, "Evidence for replication success",
+                                      ifelse(BFs > gamma,            "Replication estimate in the opposite direction",
+                                             ifelse(BFs >= 1,               "Weak evidence for replication success",
+                                                    ifelse(BFs >= 1/gamma,         "Weak evidence for replication failure",
+                                                           ifelse(BFs < 1/gamma,          "Evidence for replication failure",
+                                                                  NA_character_))))))
 
-    outcome <- ifelse(is.nan(BFs),    "Inconclusive",
-                      ifelse(BFs > gamma,    "Replication success",
-                             ifelse(BFs <= 1/gamma, "Replication failure",
+    outcome <- ifelse(is.nan(BFs), "Inconclusive",
+                      ifelse(BFs > gamma & same_dir, "Replication success",
+                             ifelse(BFs > gamma | BFs <= 1/gamma, "Replication failure",
                                     "Inconclusive")))
 
     data.frame(outcome=outcome, outcome_detailed=outcome_detailed, quantitative_value = BFs)
@@ -1237,15 +1314,15 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   assess_pScept <- function(df, alpha = alpha_level){
 
     # Sidedness follows the analysis scale:
-    #  * scale == "cor"     -> TWO-SIDED: z's from the reported p-values via
+    #  scale == "cor"     -> TWO-SIDED: z's from the reported p-values via
     #    p2z(); success gated by the qualitative pattern flag (two.sided
     #    pSceptical doesn't check direction itself).
-    #  * scale == "fisherz" -> ONE-SIDED: z's from the effect size / SE ratio;
-    #    no pattern gate (one.sided pSceptical handles direction internally).
+    # scale == "fisherz" -> ONE-SIDED: z's from the effect size / SE ratio;
+    #    no pattern (one.sided pSceptical handles direction already).
     #
     # pSceptical(type = "golden" / "controlled") returns a RECALIBRATED sceptical
     # p-value, which is compared directly with the significance level: alpha
-    # (one-sided) or 2 * alpha (two-sided), as in SCORE's repli_binary.R.
+    # (one-sided, fisher z) or 2 * alpha (two-sided, cor scale).
     # levelSceptical() gives the threshold for the NOMINAL p-value and must not
     # be applied to the recalibrated one (that would recalibrate twice).
     score_mode <- unique(df$scale) == "cor"
@@ -1285,13 +1362,13 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
       )
     }
 
-    # --- guard against dropped columns (COR-only data has no n1_o/n2_o/n1_r/n2_r) ---
+    # guard against dropped columns (COR-only data has no n1_o/n2_o/n1_r/n2_r)
     n1_o <- if ("n1_o" %in% names(df)) df$n1_o else rep(NA_real_, nrow(df))
     n2_o <- if ("n2_o" %in% names(df)) df$n2_o else rep(NA_real_, nrow(df))
     n1_r <- if ("n1_r" %in% names(df)) df$n1_r else rep(NA_real_, nrow(df))
     n2_r <- if ("n2_r" %in% names(df)) df$n2_r else rep(NA_real_, nrow(df))
 
-    # --- resolve n_o/n_r ONCE, vectorized ---
+    # resolve n_o/n_r ONCE, vectorized
     n_o_resolved <- ifelse(!is.na(n1_o) & !is.na(n2_o), n1_o + n2_o, df$n_o)
     n_r_resolved <- ifelse(!is.na(n1_r) & !is.na(n2_r), n1_r + n2_r, df$n_r)
 
@@ -1317,14 +1394,27 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
       na_mask <- is.na(pScept) | is.na(pattern_met)
 
     } else {
-      pScept <- mapply(compute_pScept_z,
-                       es_o = df$es_o, se_o = df$se_o, es_r = df$es_r, se_r = df$se_r,
-                       n_o = n_o_resolved, n_r = n_r_resolved)
+      # z-values oriented to the original claim (reported p-values and
+      # same_direction when supplied, otherwise es / se); variance ratio
+      # c = n_r / n_o, or se_o^2 / se_r^2 when an SE comes from the degrees
+      # of freedom or the effective sample size
+      op   <- oriented_p(df)
+      c_vr <- n_r_resolved / n_o_resolved
+      if ("se_src_o" %in% names(df)) {
+        meta <- df$se_src_o %in% c("df", "effective_n") | df$se_src_r %in% c("df", "effective_n")
+        c_vr[meta] <- (df$se_o^2 / df$se_r^2)[meta]
+      }
+      pScept <- mapply(function(zo, zr, cc) {
+        if (any(!is.finite(c(zo, zr, cc))) || cc <= 0) return(NA_real_)
+        tryCatch(ReplicationSuccess::pSceptical(zo = zo, zr = zr, c = cc,
+                                                alternative = "one.sided", type = ps_type),
+                 error = function(e) NA_real_)
+      }, op$z_o, op$z_r, c_vr)
 
       # one-sided recalibrated p-value -> compare with alpha
       skep_level <- rep(alpha, nrow(df))
 
-      success <- !is.na(pScept) & !is.na(skep_level) & (pScept <= skep_level)
+      success <- !is.na(pScept) & !is.na(skep_level) & (pScept <= skep_level) & pattern_gate(df)
       na_mask <- is.na(pScept)
     }
 
@@ -1358,7 +1448,9 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
 
     for (i in seq_len(nrow(df))) {
 
-      ## Match the 225-pair analysis sample used by Van Aert
+      ## Following van Aert (author of snapshot hybrid) The snapshot is applied
+      # only when the original is significant (one-sided p < 0.025).
+      # That leaves 211 claims
       if (!isTRUE(base_eligible[i])) {
         next
       }
@@ -1389,17 +1481,21 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
         next
       }
 
-      ## Snapshot uses Fisher-z correlations and raw sample-size variances
+      ## Snapshot uses Fisher-z correlations and raw sample-size variances,
+      ## unless the SE comes from degrees of freedom or effective sample size
       es <- atanh(c(r_o, r_r))
       se <- 1 / sqrt(c(n_o, n_r) - 3)
+      if (df$scale[i] == "fisherz" && "se_src_o" %in% names(df)) {
+        if (!is.na(df$se_src_o[i]) && df$se_src_o[i] %in% c("df", "effective_n")) se[1] <- df$se_o[i]
+        if (!is.na(df$se_src_r[i]) && df$se_src_r[i] %in% c("df", "effective_n")) se[2] <- df$se_r[i]
+      }
 
       ## Orient the original positively and reverse the replication with it
       if (es[1] < 0) {
         es <- -es
       }
 
-      ## Van Aert applies snapshot only when the original is significant:
-      ## one-sided p < .025 after orientation
+      ## one-sided p < .025 after orientation (snapshot only when the original is significant)
       p_original <- stats::pnorm(
         es[1] / se[1],
         lower.tail = FALSE
@@ -1617,7 +1713,6 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
 
       # Dtie() ends in sqrt() and returns NA for very small n_o
       # (the variance ratio drops below 1). is.na() handles this potential error
-      # so the warning is suppressed.
       Dtie_res <- suppressWarnings(
         tryCatch(Dtie(n_o = n_o, lr = lr_dtie), error = function(e) NA_real_)
       )
@@ -1698,7 +1793,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   assess_correspondence <- function(df, h = 0.2, alpha = 0.05){
 
     # The equivalence threshold h = 0.2 is defined in CORRELATION units
-    # (repli_binary.R: "a shift in corr. interpretation"). The test must
+    # (a shift in corr. interpretation). The test must
     # therefore run on the correlation scale:
     #  * df$scale == "cor"     -> es/se are already raw r, use them as-is
     #  * df$scale == "fisherz" -> back-transform es/se to r (tanh + delta
@@ -1729,7 +1824,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     ct      <- vapply(res, function(x) x$ct,      character(1))
     p_equiv <- vapply(res, function(x) x$p_equiv, numeric(1))
 
-    ### Success criterion, matching repli_binary.R's mapping exactly:
+    ### Success criterion
     ### Equivalence / Trivial Difference -> success; Difference -> failure;
     ### Indeterminacy -> NA (neither test conclusive)
     outcome <- ifelse(is.na(ct), NA_character_,
@@ -1744,8 +1839,8 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   # Minimum-effect test ----
   assess_minimum_effect <- function(df, h = NULL, shrinkage=0.25, alpha = 0.025){
 
-    # Minimum-effect testing is the mirror image of equivalence testing (TOST):
-    # Equivalently, H0 is rejected when the (1 - 2*alpha) CI for the difference
+    # Minimum-effect testing is the opposite (mirror) of equivalence testing (TOST):
+    # H0 is rejected when the (1 - 2*alpha) CI for the difference
     # lies entirely outside [-h, h] --
     # The combined p-value is the minimum of the two one-sided p-values
     # while TOST takes the maximum.
