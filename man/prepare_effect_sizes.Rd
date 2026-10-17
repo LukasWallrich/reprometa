@@ -39,7 +39,8 @@ prepare_effect_sizes(
   dof_r = NULL,
   effective_df_r = NULL,
   effective_sample_size_r = NULL,
-  pattern_met = NULL
+  pattern_met = NULL,
+  same_direction = NULL
 )
 }
 \arguments{
