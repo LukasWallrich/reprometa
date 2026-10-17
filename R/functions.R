@@ -1096,24 +1096,22 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
 
     ### Success criterion
 
-    outcome_detailed <- ifelse(BFJZS_ori < log(gamma) & BFJZS_ori > log(1/gamma),
-                               "Original null effect",
-                               ifelse(BFJZS_ori > log(gamma) & BFJZS_rep > log(gamma) & same_dir,
-                                      "Evidence for replication success",
-                                      ifelse(BFJZS_ori > log(gamma) & BFJZS_rep > log(gamma),
-                                             "Evidence for an effect opposite to the original",
-                                             ifelse(BFJZS_ori > log(gamma) & BFJZS_rep < log(1/gamma),
-                                                    "Evidence for replication failure",
-                                                    NA_character_))))
+    lg <- log(gamma)
+    ok <- !is.na(BFJZS_ori) & !is.na(BFJZS_rep) & !is.na(same_dir)
 
-    outcome <- ifelse(BFJZS_ori < log(gamma) & BFJZS_ori > log(1/gamma),
-                      "Inconclusive due to original null effect",
-                      ifelse(BFJZS_ori > log(gamma) & BFJZS_rep > log(gamma) & same_dir,
-                             "Replication success",
-                             ifelse(BFJZS_ori > log(gamma) &
-                                      (BFJZS_rep > log(gamma) | BFJZS_rep < log(1/gamma)),
-                                    "Replication failure",
-                                    NA_character_)))
+    outcome_detailed <- ifelse(!ok, NA_character_,
+                               ifelse(BFJZS_ori < -lg, "Evidence for no original effect",
+                                      ifelse(BFJZS_ori <= lg, "Original null effect",
+                                             ifelse(BFJZS_rep > lg & same_dir, "Evidence for replication success",
+                                                    ifelse(BFJZS_rep > lg, "Evidence for an effect opposite to the original",
+                                                           ifelse(BFJZS_rep < -lg, "Evidence for replication failure",
+                                                                  "Inconclusive replication"))))))
+
+    outcome <- ifelse(!ok, NA_character_,
+                      ifelse(outcome_detailed == "Evidence for replication success", "Replication success",
+                             ifelse(outcome_detailed %in% c("Evidence for an effect opposite to the original",
+                                                            "Evidence for replication failure"),
+                                    "Replication failure", "Inconclusive")))
     data.frame(outcome=outcome, outcome_detailed=outcome_detailed, quantitative_value = exp(BFJZS_rep))
   }
 
@@ -1442,7 +1440,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     } else {
       rep(TRUE, nrow(df))
     }
-
+    os_nonsig <- rep(FALSE, nrow(df))
     pSnap   <- rep(NA_real_, nrow(df))
     snap_idx <- rep(NA_integer_, nrow(df))
 
@@ -1502,6 +1500,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
       )
 
       if (!is.finite(p_original) || p_original >= 0.025) {
+        os_nonsig[i] <- TRUE
         next
       }
 
@@ -1555,6 +1554,8 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     outcome <- rep(NA_character_, nrow(df))
     outcome[evaluated] <- "Replication failure"
     outcome[nonnull_selected] <- "Replication success"
+    outcome[os_nonsig]          <- "OS not significant"
+    outcome_detailed[os_nonsig] <- "original effect is not significant"
 
     data.frame(
       outcome = outcome,
@@ -1830,7 +1831,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     outcome <- ifelse(is.na(ct), NA_character_,
                       ifelse(ct %in% c("Equivalence", "Trivial Difference"), "Replication success",
                              ifelse(ct == "Difference", "Replication failure",
-                                    ifelse(ct == "Indeterminacy", NA_character_, NA_character_))))
+                                    ifelse(ct == "Indeterminacy", "Inconclusive", NA_character_))))
 
     data.frame(outcome = outcome, outcome_detailed = ct,
                quantitative_value = p_equiv)

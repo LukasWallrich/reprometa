@@ -629,9 +629,10 @@ calibrate_threshold <- function(metric = c("significance_agg", "sum_p", "BF_JZS"
 .calibrate_bfs <- function(alpha, c = 1) {
   target <- alpha^2
   f  <- function(lg) log(.bfs_success_prob(exp(lg), c)) - log(target)
-  lo <- log(1.001)
+  lo <- log(1 + 1e-6)
   hi <- log(1e5)
-  if (f(lo) < 0 || f(hi) > 0) {
+  if (f(lo) < 0) return(1)
+  if (f(hi) > 0) {
     warning("No sceptical Bayes factor threshold gives the target T1E rate ",
             "for alpha = ", alpha, "; returning NA.")
     return(NA_real_)
