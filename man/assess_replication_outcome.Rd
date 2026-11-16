@@ -79,7 +79,7 @@ implemented. The thresholds are computed from `alpha` with
     standard error of the pooled estimate;
   \item `"BFs"` uses the Bayes-factor threshold
     `calibrate_threshold("BFs", alpha, c)` computed from the variance
-    ratio \eqn{c = v_o / v_r} of each pair (2.81 for
+    ratio \eqn{c = v_o / v_r} of each pair (2.36 for
     alpha = 0.025 and c = 1), which gives an overall T1E rate of exactly
     \eqn{\alpha^2} for every pair; and
   \item `"pScept"` uses the controlled rather than the golden

@@ -8,3 +8,8 @@ export(logor_to_d)
 export(prepare_effect_sizes)
 export(r_to_zr)
 export(zr_to_p)
+importFrom(stats,
+  pnorm,
+  qnorm,
+  reshape
+)

@@ -497,8 +497,8 @@ hybrid_snap <- function(es, se, alpha=0.025, sm=0.1, me=0.3, la=0.5,
 #' @examples
 #' calibrate_threshold("BF_JZS", alpha = 0.025)             # 1.60
 #' calibrate_threshold("BF_meta", alpha = 0.025)            # 23.7
-#' calibrate_threshold("BFs", alpha = c(0.01, 0.025, 0.05)) # 4.38 2.81 1.98 (c = 1)
-#' calibrate_threshold("BFs", alpha = 0.025, c = c(0.25, 1, 4)) # 3.57 2.81 1.58
+#' calibrate_threshold("BFs", alpha = c(0.01, 0.025, 0.05)) # 3.71 2.36 1.65 (c = 1)
+#' calibrate_threshold("BFs", alpha = 0.025, c = c(0.25, 1, 4)) # 2.95 2.36 1.42
 calibrate_threshold <- function(metric = c("significance_agg", "sum_p", "BF_JZS", "BF_meta", "BFs"),
                                 alpha = 0.025, c = 1) {
   metric <- match.arg(metric)

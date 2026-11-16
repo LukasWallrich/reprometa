@@ -1,9 +1,8 @@
 ###############################################################################
 #############################  ReproMeta  #####################################
 ###############################################################################
-library(ReplicationSuccess)
-library(BayesRep)
-library(metafor)
+# Dependencies are declared in DESCRIPTION and called with `pkg::` or imported
+# in NAMESPACE; package code must not call library().
 
 # Main idea: Meta-function taking different effect sizes as input.
 # Correlation, cohen's d, log OR will be converted to transformed Fisher z.
@@ -91,12 +90,21 @@ if (!exists("%||%")) `%||%` <- function(x, y) if (is.null(x)) y else x
 #'   replication result satisfies the qualitative direction or pattern
 #'   criterion. When unavailable, metrics requiring this information may use a
 #'   sign-agreement approximation.
+#' @param same_direction Optional logical vector, `TRUE` if the replication
+#'   effect is in the direction of the original claim (e.g., SCORE's
+#'   `repli_effect_direction`). When supplied, it replaces the sign comparison
+#'   of the estimates in the significance criterion, meta-analysis, sum of
+#'   p-values and sceptical p-value on the Fisher-\eqn{z} scale; the other
+#'   metrics use the signs of the estimates.
 #'
 #' @details
 #' For correlation inputs, the function can retain the raw correlation scale
 #' or transform the estimates to the Fisher-\eqn{z} scale. If test-statistic
 #' metadata are supplied, standard errors are calculated
-#' using effective degrees of freedom or effective sample sizes.
+#' using effective degrees of freedom or effective sample sizes. Without such
+#' metadata, the Fisher-\eqn{z} standard error of a correlation is
+#' \eqn{\sqrt{1/n + (6 - r^2)/(2 n^2)}}, a second-order approximation that is
+#' close to \eqn{1/\sqrt{n - 3}}.
 #'
 #' Standardized mean differences are first converted to correlations and then,
 #' when `scale = "fisherz"`, to Fisher-\eqn{z} correlations. Log odds ratios
@@ -213,7 +221,8 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
   #     df1 = n - 2 - k with k covariates and Var(atanh(r)) = 1 / (n - 3 - k),
   #     so se = 1 / sqrt(df1 - 1).
   #  2. effective sample size: se = 1 / sqrt(n_eff - 3)
-  #  3. sample size (the default without additional data, default when additional arguments are empty)
+  #  3. sample size (the default without additional data):
+  #     se = sqrt(1/n + (6 - r^2) / (2 n^2)), close to 1 / sqrt(n - 3)
   compute_se_z <- function(r, n, stat_type, dof, effective_df, effective_sample_size) {
     df1 <- ifelse(is.na(effective_df), dof, effective_df)
     if (!is.na(stat_type) && stat_type == "t" && !is.na(df1) && df1 > 1)
@@ -463,7 +472,7 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
 #'       standard error of the pooled estimate;
 #'     \item `"BFs"` uses the Bayes-factor threshold
 #'       `calibrate_threshold("BFs", alpha, c)` computed from the variance
-#'       ratio \eqn{c = v_o / v_r} of each pair (2.81 for
+#'       ratio \eqn{c = v_o / v_r} of each pair (2.36 for
 #'       alpha = 0.025 and c = 1), which gives an overall T1E rate of exactly
 #'       \eqn{\alpha^2} for every pair; and
 #'     \item `"pScept"` uses the controlled rather than the golden
@@ -1173,16 +1182,16 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     BFe <- mapply(compute_BFe, to = df$es_o, so = df$se_o,
                   tr = df$es_r, sr = df$se_r, tau = tau)
 
-    # ## compute sceptical BF and invert it, so that values >1 indicate evidence consistent with original study (replication success)
-    # BFe <- BayesRep::BFe(to=df$es_o, so=df$se_o, tr=df$es_r, sr=df$se_r, tau=tau)
+    # BayesRep::BFe() returns BF01 (equal vs unequal effects): values > 1
+    # favour equal effects (replication success)
 
     ### Success criterion
 
     outcome_detailed <- ifelse(BFe > gamma,
                                "Evidence for replication success",
-                               ifelse(BFe <= gamma,
+                               ifelse(BFe <= 1/gamma,
                                       "Evidence for replication failure",
-                                      NA_character_))
+                                      "Inconclusive evidence"))
 
     outcome <- ifelse(BFe > gamma,   "Replication success",
                       ifelse(BFe <= 1/gamma, "Replication failure",
@@ -1208,7 +1217,8 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
       )
     }
 
-    ## compute sceptical BF and invert it, so that values >1 indicate evidence consistent with original study (replication success)
+    ## BayesRep::BFr() returns BF0r (null vs original posterior); invert it so
+    ## that values > 1 indicate evidence for the original effect (success)
 
     BFr <- 1 / mapply(compute_BFr, to = df$es_o, so = df$se_o,
                       tr = df$es_r, sr = df$se_r)
@@ -1269,7 +1279,8 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
       )
     }
 
-    ## compute sceptical BF and invert it, so that values >1 indicate evidence consistent with original study (replication success)
+    ## BayesRep::BFs() returns the sceptical BF (small values = success);
+    ## invert it so that values > 1 indicate replication success
     BFs <- 1 / mapply(compute_BFs, to=df$es_o, so=df$se_o,
                       tr=df$es_r, sr=df$se_r)
 
@@ -1821,7 +1832,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
 
     ### Success criterion
     ### Equivalence / Trivial Difference -> success; Difference -> failure;
-    ### Indeterminacy -> NA (neither test conclusive)
+    ### Indeterminacy -> Inconclusive (neither test conclusive)
     outcome <- ifelse(is.na(ct), NA_character_,
                       ifelse(ct %in% c("Equivalence", "Trivial Difference"), "Replication success",
                              ifelse(ct == "Difference", "Replication failure",
