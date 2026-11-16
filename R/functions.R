@@ -79,6 +79,10 @@ if (!exists("%||%")) `%||%` <- function(x, y) if (is.null(x)) y else x
 #'   are converted to two-tailed p-values by multiplication by two.
 #' @param repli_p_value Optional numeric vector containing reported replication
 #'   p-values.
+#' @param repli_p_value_tails Optional character vector indicating whether each
+#'   replication p-value is one- or two-tailed; one-tailed values are doubled,
+#'   as for `orig_p_value_tails`. Without it, replication p-values are taken
+#'   to be two-tailed.
 #' @param stat_type_o,stat_type_r Optional character vectors identifying the
 #'   test-statistic type in the original and replication studies. A value of
 #'   `"t"` causes the standard error calculation to use degrees of freedom;
@@ -200,7 +204,8 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
                                  same_direction=NULL,
                                  # Options added later are appended here, so that
                                  # positional calls keep working.
-                                 orig_p_value_inexact = c("drop", "bound")) {
+                                 orig_p_value_inexact = c("drop", "bound"),
+                                 repli_p_value_tails = NULL) {
 
   scale <- match.arg(scale)
   orig_p_value_inexact <- match.arg(orig_p_value_inexact)
@@ -222,6 +227,7 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
   orig_p_value_type  <- recycle(orig_p_value_type, "orig_p_value_type")
   orig_p_value_tails <- recycle(orig_p_value_tails, "orig_p_value_tails")
   repli_p_value      <- recycle(repli_p_value, "repli_p_value")
+  repli_p_value_tails <- recycle(repli_p_value_tails, "repli_p_value_tails")
   stat_type_o <- recycle(stat_type_o, "stat_type_o"); stat_type_r <- recycle(stat_type_r, "stat_type_r")
   dof_o <- recycle(dof_o, "dof_o"); dof_r <- recycle(dof_r, "dof_r")
   effective_df_o <- recycle(effective_df_o, "effective_df_o")
@@ -421,7 +427,12 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
     df$orig_p_value <- pmin(pmax(p, 1e-10), 1)
   }
   if (!is.null(repli_p_value)) {
-    df$repli_p_value <- pmin(pmax(repli_p_value, 1e-10), 1)
+    pr <- repli_p_value
+    if (!is.null(repli_p_value_tails)) {
+      pr <- ifelse(is.na(repli_p_value_tails) | grepl("two", repli_p_value_tails),
+                   pr, pr * 2)
+    }
+    df$repli_p_value <- pmin(pmax(pr, 1e-10), 1)
   }
 
   # Qualitative direction/pattern flag
