@@ -617,6 +617,14 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
 #'     \item{`minimum_effect`}{`h` (default `NULL`, i.e.
 #'       (1 - `shrinkage`) times the original effect), `shrinkage`
 #'       (default 0.25), `alpha` (default 0.025).}
+#'     \item{`significance_agg`}{`method`: `"stouffer"` (default, unweighted
+#'       Stouffer combination of the one-sided z-values) or `"iv"`
+#'       (inverse-variance fixed-effect pooled estimate tested at
+#'       \eqn{z_{1-\alpha^2}}, using `same_direction` when supplied); used
+#'       when `calibrated = TRUE`. For a pre-specified direction, the overall
+#'       T1E rate is \eqn{\alpha^2} for Stouffer and at most \eqn{\alpha^2}
+#'       for `"iv"`; because the direction is taken from the observed original
+#'       estimate, the unconditional rate is at most \eqn{2\alpha^2}.}
 #'     \item{`significance_r`, `significance_agg`, `sum_p`, `pScept`}{`alpha`
 #'       (default: the `alpha` argument above, which is the recommended way
 #'       to change it); `sum_p` also takes `threshold`.}
@@ -834,7 +842,42 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
 
 
   # Fixed Meta-Analysis (aggregating one original and one replication) ----
-  assess_agg_significance <- function(df, alpha = alpha_level) {
+  # `method`: "stouffer" (default) combines the one-sided z-values with equal
+  # weights; "iv" tests the inverse-variance (fixed-effect) pooled estimate.
+  # When calibrated, both keep the overall T1E rate at or below alpha^2 for a
+  # pre-specified direction (Stouffer exactly; IV at most, because the
+  # original's evidence enters as |es_o|). As in the other Family 1 metrics,
+  # the direction is taken from the observed original estimate, so the
+  # unconditional rate is at most 2 alpha^2.
+  assess_agg_significance <- function(df, alpha = alpha_level,
+                                      method = c("stouffer", "iv")) {
+    method <- match.arg(method)
+
+    if (calibrated && method == "iv") {
+      # CALIBRATED inverse-variance fixed effect: pooled z > z_{1 - alpha^2} ----
+      w_o  <- 1 / df$se_o^2
+      w_r  <- 1 / df$se_r^2
+      # estimates oriented to the original's direction; the replication's
+      # direction comes from same_direction when supplied, else from the signs
+      flip <- ifelse(is.na(df$es_o), NA_real_, ifelse(df$es_o < 0, -1, 1))
+      es_r_or <- flip * df$es_r
+      if ("same_direction" %in% names(df)) {
+        es_r_or <- ifelse(is.na(df$same_direction), es_r_or,
+                          ifelse(df$same_direction, abs(df$es_r), -abs(df$es_r)))
+      }
+      z_p  <- (w_o * abs(df$es_o) + w_r * es_r_or) / sqrt(w_o + w_r)
+      gate <- if (unique(df$scale) == "fisherz") pattern_gate(df) else rep(TRUE, nrow(df))
+      ok   <- !is.na(z_p) & is.finite(z_p)
+      success <- ok & (z_p > stats::qnorm(1 - alpha^2)) & gate
+      outcome_detailed <- ifelse(!ok, NA_character_,
+                                 ifelse(success,
+                                        "Pooled effect exceeds the success threshold",
+                                        "Pooled effect does not exceed the success threshold"))
+      outcome <- ifelse(!ok, NA_character_,
+                        ifelse(success, "Replication success", "Replication failure"))
+      return(data.frame(outcome = outcome, outcome_detailed = outcome_detailed,
+                        quantitative_value = stats::pnorm(z_p, lower.tail = FALSE)))
+    }
 
     if (calibrated) {
       # CALIBRATED: unweighted Stouffer, exact overall T1E at alpha^2 ----
