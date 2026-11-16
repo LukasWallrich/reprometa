@@ -67,7 +67,13 @@ if (!exists("%||%")) `%||%` <- function(x, y) if (is.null(x)) y else x
 #'   and the sceptical p-value.
 #' @param orig_p_value_type Optional character vector describing the reporting
 #'   type of each original-study p-value. When supplied, only values coded as
-#'   `"exact"` are retained.
+#'   `"exact"` are retained, unless `orig_p_value_inexact = "bound"`.
+#' @param orig_p_value_inexact How to treat original p-values reported as an
+#'   upper bound (`orig_p_value_type == "less-than"`, e.g. "p < .001").
+#'   `"drop"` (default) discards them, so the metrics recompute the evidence
+#'   from the effect estimate and its standard error. `"bound"` keeps the bound
+#'   as a conservative p-value (the true p is smaller). Other non-exact types
+#'   (e.g. `"greater-than"`) are always dropped.
 #' @param orig_p_value_tails Optional character vector indicating whether each
 #'   original-study p-value is one- or two-tailed. Reported one-tailed p-values
 #'   are converted to two-tailed p-values by multiplication by two.
@@ -191,9 +197,13 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
                                  # Optional: TRUE if the replication effect is in the direction of the
                                  # original claim (e.g., SCORE's repli_effect_direction). Used by the
                                  # metrics that combine p-values on the Fisher-z scale.
-                                 same_direction=NULL) {
+                                 same_direction=NULL,
+                                 # Options added later are appended here, so that
+                                 # positional calls keep working.
+                                 orig_p_value_inexact = c("drop", "bound")) {
 
   scale <- match.arg(scale)
+  orig_p_value_inexact <- match.arg(orig_p_value_inexact)
   stopifnot(is.character(effectsize), all(effectsize %in% c("COR","SMD","LOGOR","ZCOR")))
 
   n_studies <- length(r_o %||% d_o %||% logor_o %||% z_o)
@@ -399,8 +409,10 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
   if (!is.null(orig_p_value)) {
     p <- orig_p_value
     if (!is.null(orig_p_value_type)) {
-      p <- ifelse(is.na(orig_p_value_type) | orig_p_value_type != "exact",
-                  NA_real_, p)
+      keep <- !is.na(orig_p_value_type) & orig_p_value_type == "exact"
+      if (orig_p_value_inexact == "bound")
+        keep <- keep | (!is.na(orig_p_value_type) & orig_p_value_type == "less-than")
+      p <- ifelse(keep, p, NA_real_)
     }
     if (!is.null(orig_p_value_tails)) {
       p <- ifelse(is.na(orig_p_value_tails) | grepl("two", orig_p_value_tails),
