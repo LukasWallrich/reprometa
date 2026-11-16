@@ -364,7 +364,10 @@ find_z_for_power <- function(power, n1, n2, alpha=0.025){
 
 
 # Snapshot Hybrid. Code was taken from original authors and readapted for our needs.
-hybrid_snap <- function(es, se, alpha=0.025, sm=0.1, me=0.3, la=0.5) {
+# `priors`: prior probabilities of the null, small, medium and large effect
+# models (equal by default, as in van Aert and van Assen, 2017).
+hybrid_snap <- function(es, se, alpha=0.025, sm=0.1, me=0.3, la=0.5,
+                        priors = rep(0.25, 4)) {
   # Stop if the inputs are not a vector length 2 (original, replication)
   stopifnot(length(es) == 2, length(se) == 2)
 
@@ -390,8 +393,10 @@ hybrid_snap <- function(es, se, alpha=0.025, sm=0.1, me=0.3, la=0.5) {
                  stats::pnorm(ycvi[1],fis.la,se[1], lower.tail=FALSE, log.p = TRUE)) +
     stats::dnorm(es[2],fis.la,se[2], log = TRUE)
 
-  logs <- c(log_f.0, log_f.sm, log_f.me, log_f.la)
-  if (any(!is.finite(logs))) {
+  loglik <- c(log_f.0, log_f.sm, log_f.me, log_f.la)
+  # a zero prior excludes its model (log prior -Inf, posterior 0)
+  logs <- loglik + log(priors)
+  if (any(!is.finite(loglik)) || !any(is.finite(logs))) {
     return(data.frame(
       p.0  = NA_real_,
       p.sm = NA_real_,
@@ -401,7 +406,7 @@ hybrid_snap <- function(es, se, alpha=0.025, sm=0.1, me=0.3, la=0.5) {
   }
 
   # Shift by max to avoid overflow/underflow, then normalise
-  m     <- max(logs)
+  m     <- max(logs[is.finite(logs)])
   probs <- exp(logs - m)
   probs <- probs / sum(probs)
 

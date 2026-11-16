@@ -1381,12 +1381,15 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     } else {
       # z-values oriented to the original claim (reported p-values and
       # same_direction when supplied, otherwise es / se); variance ratio
-      # c = n_r / n_o, or se_o^2 / se_r^2 when an SE comes from the degrees
-      # of freedom or the effective sample size
+      # c = n_r / n_o for n-based SEs, otherwise se_o^2 / se_r^2 (SEs from the
+      # degrees of freedom or the effective sample size, or supplied SEs)
       op   <- oriented_p(df)
       c_vr <- n_r_resolved / n_o_resolved
       if ("se_src_o" %in% names(df)) {
-        meta <- df$se_src_o %in% c("df", "effective_n") | df$se_src_r %in% c("df", "effective_n")
+        # SEs not derived from n (df, effective n, or supplied with ZCOR/SMD/LOGOR
+        # input): use the variance ratio of the SEs
+        meta <- df$se_src_o %in% c("df", "effective_n", "supplied") |
+          df$se_src_r %in% c("df", "effective_n", "supplied")
         c_vr[meta] <- (df$se_o^2 / df$se_r^2)[meta]
       }
       pScept <- mapply(function(zo, zr, cc) {
@@ -1418,7 +1421,10 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   assess_snaphybrid <- function(df, threshold=0.75, pr_0 = 0.25, pr_s = 0.25, pr_m = 0.25){
     # Calculate prior for large effect based on other priors
     pr_l <- 1 - (pr_0 + pr_s + pr_m)
-    stopifnot(pr_0 + pr_s + pr_m + pr_l == 1)
+    if (is.finite(pr_l) && pr_l < 0 && pr_l > -1e-10) pr_l <- 0   # rounding
+    priors <- c(pr_0, pr_s, pr_m, pr_l)
+    if (any(!is.finite(priors)) || any(priors < 0) || any(priors > 1))
+      stop("snaphybrid: pr_0, pr_s and pr_m must be probabilities with pr_0 + pr_s + pr_m <= 1")
 
     effect_labels <- c("null effect", "small effect", "medium effect", "large effect")
 
@@ -1495,7 +1501,8 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
         hybrid_snap(
           es = es,
           se = se,
-          alpha = 0.025
+          alpha = 0.025,
+          priors = priors
         ),
         error = function(e) NULL
       )
