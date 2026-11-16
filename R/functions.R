@@ -200,6 +200,31 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
   if (length(effectsize) == 1) effectsize <- rep(effectsize, n_studies)
   stopifnot(length(effectsize) == n_studies)
 
+  # Per-pair metadata of length one applies to every pair; other lengths that
+  # do not match the number of pairs are an error (they used to be recycled
+  # inconsistently, e.g. a scalar p-value type kept only the first p-value).
+  recycle <- function(x, nm) {
+    if (is.null(x) || length(x) == n_studies) return(x)
+    if (length(x) == 1) return(rep(x, n_studies))
+    stop("`", nm, "` must have length 1 or ", n_studies, " (the number of study pairs)")
+  }
+  orig_p_value       <- recycle(orig_p_value, "orig_p_value")
+  orig_p_value_type  <- recycle(orig_p_value_type, "orig_p_value_type")
+  orig_p_value_tails <- recycle(orig_p_value_tails, "orig_p_value_tails")
+  repli_p_value      <- recycle(repli_p_value, "repli_p_value")
+  stat_type_o <- recycle(stat_type_o, "stat_type_o"); stat_type_r <- recycle(stat_type_r, "stat_type_r")
+  dof_o <- recycle(dof_o, "dof_o"); dof_r <- recycle(dof_r, "dof_r")
+  effective_df_o <- recycle(effective_df_o, "effective_df_o")
+  effective_df_r <- recycle(effective_df_r, "effective_df_r")
+  effective_sample_size_o <- recycle(effective_sample_size_o, "effective_sample_size_o")
+  effective_sample_size_r <- recycle(effective_sample_size_r, "effective_sample_size_r")
+  orig_conv_r_lb  <- recycle(orig_conv_r_lb, "orig_conv_r_lb")
+  orig_conv_r_ub  <- recycle(orig_conv_r_ub, "orig_conv_r_ub")
+  repli_conv_r_lb <- recycle(repli_conv_r_lb, "repli_conv_r_lb")
+  repli_conv_r_ub <- recycle(repli_conv_r_ub, "repli_conv_r_ub")
+  pattern_met    <- recycle(pattern_met, "pattern_met")
+  same_direction <- recycle(same_direction, "same_direction")
+
   # Exact test-type-dependent SE on the raw correlation scale
   # (sqrt((1-r^2)/df1) if stat_type=="t", else sqrt((1-r^2)/size),
   #  preferring effective df / effective sample size, falling back to raw dof/n)
