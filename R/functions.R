@@ -338,7 +338,7 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
         se_r_i <- se_r_l$se; src_r <- se_r_l$src
       }
 
-      data.frame(es_o=es_o_i, se_o=se_o_i, es_r=es_r_i, se_r=se_r_i,
+      list(es_o=es_o_i, se_o=se_o_i, es_r=es_r_i, se_r=se_r_i,
                  n_o=n_o[i], n_r=n_r[i],
                  n1_o=NA_real_, n2_o=NA_real_, n1_r=NA_real_, n2_r=NA_real_,
                  se_src_o=src_o, se_src_r=src_r)
@@ -353,7 +353,7 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
       es_o_i <- conv_o[["es"]]; se_o_i <- conv_o[["se"]]
       es_r_i <- conv_r[["es"]]; se_r_i <- conv_r[["se"]]
 
-      data.frame(es_o=es_o_i, se_o=se_o_i, es_r=es_r_i, se_r=se_r_i,
+      list(es_o=es_o_i, se_o=se_o_i, es_r=es_r_i, se_r=se_r_i,
                  n_o=n1_o[i]+n2_o[i], n_r=n1_r[i]+n2_r[i],
                  n1_o=n1_o[i], n2_o=n2_o[i], n1_r=n1_r[i], n2_r=n2_r[i],
                  se_src_o="supplied", se_src_r="supplied")
@@ -373,7 +373,7 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
       es_o_i <- conv_o[["es"]]; se_o_i <- conv_o[["se"]]
       es_r_i <- conv_r[["es"]]; se_r_i <- conv_r[["se"]]
 
-      data.frame(es_o=es_o_i, se_o=se_o_i, es_r=es_r_i, se_r=se_r_i,
+      list(es_o=es_o_i, se_o=se_o_i, es_r=es_r_i, se_r=se_r_i,
                  n_o=n1_o[i]+n2_o[i], n_r=n1_r[i]+n2_r[i],
                  n1_o=n1_o[i], n2_o=n2_o[i], n1_r=n1_r[i], n2_r=n2_r[i],
                  se_src_o="supplied", se_src_r="supplied")
@@ -382,14 +382,20 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
       if (is.null(z_o) || is.null(z_r) || is.null(se_o) || is.null(se_r) || is.null(n_o) || is.null(n_r))
         stop("effectsize 'ZCOR' requires z_o, z_r, se_o, se_r, n_o, n_r - missing for study ", i)
 
-      data.frame(es_o = z_o[i], se_o = se_o[i], es_r = z_r[i], se_r = se_r[i],
+      list(es_o = z_o[i], se_o = se_o[i], es_r = z_r[i], se_r = se_r[i],
                  n_o = n_o[i], n_r = n_r[i],
                  n1_o = NA_real_, n2_o = NA_real_, n1_r = NA_real_, n2_r = NA_real_,
                  se_src_o = "supplied", se_src_r = "supplied")
     }
   }
 
-  df <- do.call(rbind, lapply(seq_len(n_studies), convert_one))
+  # convert_one() returns a list per pair; bind column-wise (binding one data
+  # frame per row is quadratic in the number of pairs)
+  rows <- lapply(seq_len(n_studies), convert_one)
+  cols <- names(rows[[1]])
+  df <- as.data.frame(lapply(stats::setNames(cols, cols), function(k)
+    unlist(lapply(rows, function(r) unname(r[[k]])), use.names = FALSE)),
+    stringsAsFactors = FALSE)
   df <- cbind(study_id=seq_len(n_studies), effectsize=effectsize, scale=scale, df)
   rownames(df) <- NULL
   df <- df[, colSums(is.na(df)) < nrow(df)]
