@@ -123,8 +123,7 @@ if (!exists("%||%")) `%||%` <- function(x, y) if (is.null(x)) y else x
 #' metadata are supplied, standard errors are calculated
 #' using effective degrees of freedom or effective sample sizes. Without such
 #' metadata, the Fisher-\eqn{z} standard error of a correlation is
-#' \eqn{\sqrt{1/n + (6 - r^2)/(2 n^2)}}, a second-order approximation that is
-#' close to \eqn{1/\sqrt{n - 3}}.
+#' \eqn{1/\sqrt{n - 3}}.
 #'
 #' Standardized mean differences are first converted to correlations and then,
 #' when `scale = "fisherz"`, to Fisher-\eqn{z} correlations. Log odds ratios
@@ -273,15 +272,14 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
   #     df1 = n - 2 - k with k covariates and Var(atanh(r)) = 1 / (n - 3 - k),
   #     so se = 1 / sqrt(df1 - 1).
   #  2. effective sample size: se = 1 / sqrt(n_eff - 3)
-  #  3. sample size (the default without additional data):
-  #     se = sqrt(1/n + (6 - r^2) / (2 n^2)), close to 1 / sqrt(n - 3)
+  #  3. sample size (the default without additional data): se = 1 / sqrt(n - 3)
   compute_se_z <- function(r, n, stat_type, dof, effective_df, effective_sample_size) {
     df1 <- ifelse(is.na(effective_df), dof, effective_df)
     if (!is.na(stat_type) && stat_type == "t" && !is.na(df1) && df1 > 1)
       return(list(se = 1 / sqrt(df1 - 1), src = "df"))
     if (!is.na(effective_sample_size) && effective_sample_size > 3)
       return(list(se = 1 / sqrt(effective_sample_size - 3), src = "effective_n"))
-    list(se = sqrt(1 / n + (6 - r^2) / (2 * n^2)), src = "n")
+    list(se = 1 / sqrt(n - 3), src = "n")
   }
 
   # Cohen's d (and its SE) -> point-biserial r, then Fisher z unless scale = "cor"
@@ -1467,7 +1465,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     score_mode <- unique(df$scale) == "cor"
 
     # Calibrated: use the "controlled" recalibration, which achieves exact
-    # overall T1E control at alpha^2 for every variance ratio c = n_r/n_o;
+    # overall T1E control at alpha^2 for every variance ratio c;
     # otherwise use the "golden" recalibration.
     ps_type <- if (calibrated) "controlled" else "golden"
 
@@ -1535,17 +1533,14 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     } else {
       # z-values oriented to the original claim (reported p-values and
       # same_direction when supplied, otherwise es / se); variance ratio
-      # c = n_r / n_o for n-based SEs, otherwise se_o^2 / se_r^2 (SEs from the
-      # degrees of freedom or the effective sample size, or supplied SEs)
+      # c = se_o^2 / se_r^2
       op   <- oriented_p(df)
-      c_vr <- n_r_resolved / n_o_resolved
-      if ("se_src_o" %in% names(df)) {
-        # SEs not derived from n (df, effective n, or supplied with ZCOR/SMD/LOGOR
-        # input): use the variance ratio of the SEs
-        meta <- df$se_src_o %in% c("df", "effective_n", "supplied") |
-          df$se_src_r %in% c("df", "effective_n", "supplied")
-        c_vr[meta] <- (df$se_o^2 / df$se_r^2)[meta]
-      }
+      # variance ratio of the SEs used by the other metrics (with the default
+      # SE 1/sqrt(n - 3) this is (n_r - 3)/(n_o - 3)); n_r/n_o only where an
+      # SE is unavailable
+      c_vr <- df$se_o^2 / df$se_r^2
+      no_se <- !is.finite(c_vr)
+      c_vr[no_se] <- (n_r_resolved / n_o_resolved)[no_se]
       pScept <- mapply(function(zo, zr, cc) {
         if (any(!is.finite(c(zo, zr, cc))) || cc <= 0) return(NA_real_)
         tryCatch(ReplicationSuccess::pSceptical(zo = zo, zr = zr, c = cc,
