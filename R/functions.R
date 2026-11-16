@@ -105,7 +105,17 @@ if (!exists("%||%")) `%||%` <- function(x, y) if (is.null(x)) y else x
 #'   `repli_effect_direction`). When supplied, it replaces the sign comparison
 #'   of the estimates in the significance criterion, meta-analysis, sum of
 #'   p-values and sceptical p-value on the Fisher-\eqn{z} scale; the other
-#'   metrics use the signs of the estimates.
+#'   metrics use the signs of the estimates, unless
+#'   `orient_by_same_direction = TRUE`.
+#' @param orient_by_same_direction Logical. If `TRUE` and `same_direction` is
+#'   supplied, the sign of each replication estimate (and of its reported
+#'   confidence limits) is set so that it agrees with the original estimate
+#'   exactly when `same_direction` is `TRUE`. All metrics then use the same
+#'   direction information. Useful when the signs of converted effect sizes do
+#'   not encode the claimed direction (e.g. correlations converted from F or
+#'   chi-squared statistics). Pairs with a zero or missing original estimate,
+#'   a missing replication estimate or a missing `same_direction` are left
+#'   unchanged. Default `FALSE` (estimates are used as supplied).
 #'
 #' @details
 #' For correlation inputs, the function can retain the raw correlation scale
@@ -205,7 +215,8 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
                                  # Options added later are appended here, so that
                                  # positional calls keep working.
                                  orig_p_value_inexact = c("drop", "bound"),
-                                 repli_p_value_tails = NULL) {
+                                 repli_p_value_tails = NULL,
+                                 orient_by_same_direction = FALSE) {
 
   scale <- match.arg(scale)
   orig_p_value_inexact <- match.arg(orig_p_value_inexact)
@@ -443,6 +454,28 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
   # Direction of the replication relative to the original claim
   if (!is.null(same_direction)) {
     df$same_direction <- as.logical(same_direction)
+  }
+
+  # Optionally make the sign of the replication estimate agree with
+  # same_direction, so that every metric uses the same direction information
+  if (isTRUE(orient_by_same_direction)) {
+    if (is.null(same_direction)) stop("orient_by_same_direction = TRUE requires same_direction")
+    # an estimate column that is entirely missing has been dropped above
+    es_o_v <- if ("es_o" %in% names(df)) df$es_o else rep(NA_real_, nrow(df))
+    es_r_v <- if ("es_r" %in% names(df)) df$es_r else rep(NA_real_, nrow(df))
+    target <- sign(es_o_v) * ifelse(df$same_direction, 1, -1)
+    mirror <- !is.na(target) & target != 0 & !is.na(es_r_v) & es_r_v != 0 &
+      sign(es_r_v) != target
+    if (any(mirror)) df$es_r[mirror] <- -df$es_r[mirror]
+    swap <- function(lb, ub) {
+      if (!all(c(lb, ub) %in% names(df))) return(invisible())
+      lo <- df[[lb]]; hi <- df[[ub]]
+      df[[lb]][mirror] <<- -hi[mirror]
+      df[[ub]][mirror] <<- -lo[mirror]
+    }
+    swap("repli_conv_r_lb", "repli_conv_r_ub")
+    swap("es_lb_r", "es_ub_r")
+    df$orientation_mirrored <- mirror
   }
 
   return(df)
