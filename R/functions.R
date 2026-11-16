@@ -341,19 +341,23 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
   # scale="fisherz"-> atanh()-transformed (bounds clamped just inside (-1,1) so
   #                   atanh stays finite), under es_lb_*/es_ub_* names.
   # CI-based assessments against the transformed bounds are identical to raw-r decisions.
-  if (!is.null(orig_conv_r_lb) || !is.null(repli_conv_r_lb)) {
+  # A side that is supplied without its partner is attached with the partner
+  # as NA, so that the metrics use the reported side and compute the other.
+  if (!is.null(orig_conv_r_lb) || !is.null(orig_conv_r_ub) ||
+      !is.null(repli_conv_r_lb) || !is.null(repli_conv_r_ub)) {
     z_bound <- function(b) atanh(pmax(pmin(b, 1 - 1e-12), -1 + 1e-12))
-    if (scale == "cor") {
-      if (!is.null(orig_conv_r_lb))  df$orig_conv_r_lb  <- orig_conv_r_lb
-      if (!is.null(orig_conv_r_ub))  df$orig_conv_r_ub  <- orig_conv_r_ub
-      if (!is.null(repli_conv_r_lb)) df$repli_conv_r_lb <- repli_conv_r_lb
-      if (!is.null(repli_conv_r_ub)) df$repli_conv_r_ub <- repli_conv_r_ub
-    } else {
-      if (!is.null(orig_conv_r_lb))  df$es_lb_o <- z_bound(orig_conv_r_lb)
-      if (!is.null(orig_conv_r_ub))  df$es_ub_o <- z_bound(orig_conv_r_ub)
-      if (!is.null(repli_conv_r_lb)) df$es_lb_r <- z_bound(repli_conv_r_lb)
-      if (!is.null(repli_conv_r_ub)) df$es_ub_r <- z_bound(repli_conv_r_ub)
+    to_scale <- if (scale == "cor") identity else z_bound
+    side <- function(x, partner) {
+      if (!is.null(x)) x else if (!is.null(partner)) rep(NA_real_, n_studies) else NULL
     }
+    bounds <- list(side(orig_conv_r_lb, orig_conv_r_ub), side(orig_conv_r_ub, orig_conv_r_lb),
+                   side(repli_conv_r_lb, repli_conv_r_ub), side(repli_conv_r_ub, repli_conv_r_lb))
+    names(bounds) <- if (scale == "cor") {
+      c("orig_conv_r_lb", "orig_conv_r_ub", "repli_conv_r_lb", "repli_conv_r_ub")
+    } else {
+      c("es_lb_o", "es_ub_o", "es_lb_r", "es_ub_r")
+    }
+    for (nm in names(bounds)) if (!is.null(bounds[[nm]])) df[[nm]] <- to_scale(bounds[[nm]])
   }
 
   #  Attach standardized p-values (scale-free)
@@ -861,6 +865,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     if (unique(df$scale) == "cor" && all(c("repli_conv_r_lb","repli_conv_r_ub") %in% names(df))) {
 
       ci <- rescale_ci(df$repli_conv_r_lb, df$repli_conv_r_ub, df$es_r, alpha = alpha)
+      ci <- fill_ci(ci, df$es_r, df$se_r, alpha)   # rows without reported limits
       outcome <- ifelse(df$es_o > ci$lower & df$es_o < ci$upper,
                         "Replication success", "Replication failure")
 
@@ -870,6 +875,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
       # Containment against supplied bounds on the z scale (atanh of the study's
       # reported CI). atanh is monotonic, so decision-identical to raw-r.
       ci <- rescale_ci(df$es_lb_r, df$es_ub_r, df$es_r, alpha = alpha, on_z = TRUE)
+      ci <- fill_ci(ci, df$es_r, df$se_r, alpha)   # rows without reported limits
       outcome <- ifelse(is.na(df$es_o) | is.na(ci$lower) | is.na(ci$upper), NA_character_,
                         ifelse(df$es_o > ci$lower & df$es_o < ci$upper,
                                "Replication success", "Replication failure"))
@@ -901,6 +907,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     if (unique(df$scale) == "cor" && all(c("orig_conv_r_lb","orig_conv_r_ub") %in% names(df))) {
       # --- precomputed bounds (rescaled when alpha != 0.025)
       ci <- rescale_ci(df$orig_conv_r_lb, df$orig_conv_r_ub, df$es_o, alpha = alpha)
+      ci <- fill_ci(ci, df$es_o, df$se_o, alpha)   # rows without reported limits
       outcome <- ifelse(df$es_r > ci$lower & df$es_r < ci$upper,
                         "Replication success", "Replication failure")
       data.frame(outcome=outcome, outcome_detailed=outcome, quantitative_value=NA_real_)
@@ -908,6 +915,7 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     } else if (unique(df$scale) == "fisherz" && all(c("es_lb_o","es_ub_o") %in% names(df))) {
       # Same monotonicity argument: decision-identical to raw-r.
       ci <- rescale_ci(df$es_lb_o, df$es_ub_o, df$es_o, alpha = alpha, on_z = TRUE)
+      ci <- fill_ci(ci, df$es_o, df$se_o, alpha)   # rows without reported limits
       outcome <- ifelse(is.na(df$es_r) | is.na(ci$lower) | is.na(ci$upper), NA_character_,
                         ifelse(df$es_r > ci$lower & df$es_r < ci$upper,
                                "Replication success", "Replication failure"))
@@ -966,99 +974,78 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
   # Small telescopes Metric ----
 
   # `alpha`: level of the test of the replication against the benchmark effect.
-  # `alpha_benchmark`: level used to define the benchmark (the effect the
-  # original had `power` to detect) on the probabilistic path. On the paths
-  # with reported limits, the benchmark comes from pwr.r.test() defaults and
-  # the reported 95% limits are rescaled when alpha != 0.025.
+  # `alpha_benchmark`: one-sided level used to define the benchmark (the effect
+  # the original had `power` to detect), on every path.
+  # The test is always carried out in the direction of the original estimate:
+  # the replication estimate (and reported limits) are mirrored when the
+  # original estimate is negative. Rows with reported limits compare them with
+  # a pwr.r.test() benchmark (rescaled when alpha != 0.025); rows without
+  # reported limits use the probabilistic z-test path and its benchmark.
   assess_small_telescopes <- function(df, power=1/3, alpha=0.025, alpha_benchmark = alpha) {
 
     n1_o <- if ("n1_o" %in% names(df)) df$n1_o else rep(NA_real_, nrow(df))
     n2_o <- if ("n2_o" %in% names(df)) df$n2_o else rep(NA_real_, nrow(df))
+    scale_here <- unique(df$scale)
 
-    if (unique(df$scale) == "cor" && all(df$effectsize == "COR")) {
-      small_effect <- mapply(
-        function(r, n) {
+    # +1 when the original estimate is positive (or zero), -1 when negative,
+    # NA when it is missing (the pair cannot be assessed)
+    flip <- ifelse(is.na(df$es_o), NA_real_, ifelse(df$es_o < 0, -1, 1))
 
-          if (is.na(r) || !is.finite(r) || is.na(n) || !is.finite(n) || n < 4) {
-            return(NA_real_)
-          }
+    # Probabilistic path: benchmark from a one-sided z power calculation on
+    # the Fisher-z scale (back-transformed to r when scale = "cor")
+    bench_prob <- mapply(function(effectsize, n1, n2, n) {
+      if (effectsize %in% c("SMD", "LOGOR")) {
+        if (is.na(n1) || is.na(n2)) return(NA_real_)
+        d33 <- find_z_for_power(n1 = n1, n2 = n2, power = power, alpha = alpha_benchmark)
+        r_to_zr(d_to_r(d33, n1 = n1, n2 = n2)[["r"]])[[1]]
+      } else {
+        if (is.na(n) || n < 4) return(NA_real_)
+        power.z.test(power = power, n = n-3, type = "one.sample",
+                     sig.level = alpha_benchmark, alternative = "one.sided")$delta
+      }
+    }, effectsize=df$effectsize, n1=n1_o, n2=n2_o, n=df$n_o)
+    bench_prob <- as.numeric(bench_prob)
+    if (scale_here == "cor") bench_prob <- tanh(bench_prob)
 
-          thr <- tryCatch(
-            pwr::pwr.r.test(n = n, power = power)$r,
-            error = function(e) NA_real_
-          )
+    p_telescopes <- pnorm((flip * df$es_r - bench_prob) / df$se_r, mean=0, sd=1, lower.tail=TRUE)
+    hit <- p_telescopes >= alpha
+    quant_val <- p_telescopes
 
-          if (is.na(thr) || !is.finite(thr)) {
-            return(NA_real_)
-          }
+    # Rows with reported limits (on either side)
+    reported_cor <- scale_here == "cor" && all(df$effectsize == "COR") &&
+      all(c("repli_conv_r_lb", "repli_conv_r_ub") %in% names(df))
+    reported_z <- scale_here == "fisherz" &&
+      all(c("es_lb_r", "es_ub_r") %in% names(df)) &&
+      all(df$effectsize %in% c("COR", "ZCOR"))
 
-          if (sign(r) == 1) {
-            thr
-          } else {
-            -thr
-          }
-        }, r = df$es_o, n = df$n_o)
-
-      # Compare against the precomputed replication CI bounds directly
-      # (rescaled only when alpha != 0.025).
-      ci <- rescale_ci(df$repli_conv_r_lb, df$repli_conv_r_ub, df$es_r, alpha = alpha)
-      outcome_detailed <- ifelse(sign(small_effect) == 1,
-                                 ifelse(ci$upper > small_effect,
-                                        "original study had >= 33% power to detect replication effect",
-                                        "original study had < 33% power to detect replication effect"),
-                                 ifelse(small_effect > ci$lower,
-                                        "original study had >= 33% power to detect replication effect",
-                                        "original study had < 33% power to detect replication effect"))
-      quant_val <- small_effect
-
-    } else if (unique(df$scale) == "fisherz" &&
-               all(c("es_lb_r","es_ub_r") %in% names(df)) &&
-               all(df$effectsize %in% c("COR","ZCOR"))) {
-      # Path on the Fisher-z scale ---
-      # threshold r33 from pwr.r.test with ITS OWN defaults (sig.level=0.05,
-      # two.sided. atanh() transformed onto the z scale, compared against the supplied z-scale CI bounds.
-      small_effect <- mapply(function(z, n) {
-        if (is.na(z) || is.na(n) || !is.finite(n) || n < 4) return(NA_real_)
-        thr <- tryCatch(atanh(pwr::pwr.r.test(n = n, power = power)$r),
-                        error = function(e) NA_real_)
-        if (is.na(thr) || !is.finite(thr)) return(NA_real_)
-        if (sign(z) == 1) thr else -thr
-      }, z = df$es_o, n = df$n_o)
-
-      ci  <- rescale_ci(df$es_lb_r, df$es_ub_r, df$es_r, alpha = alpha, on_z = TRUE)
-      hit <- ifelse(sign(small_effect) == 1,
-                    ci$upper > small_effect,
-                    small_effect > ci$lower)
-      outcome_detailed <- ifelse(is.na(hit), NA_character_,
-                                 ifelse(hit,
-                                        "original study had >= 33% power to detect replication effect",
-                                        "original study had < 33% power to detect replication effect"))
-      quant_val <- small_effect
-
-    } else {
-      # existing Fisher-z / probabilistic path, unchanged ---
-      es_with_33power <- mapply(function(effectsize, n1, n2, n) {
-        if (effectsize %in% c("SMD", "LOGOR")) {
-          if (is.na(n1) || is.na(n2)) return(NA_real_)
-          d33 <- find_z_for_power(n1 = n1, n2 = n2, power = power, alpha = alpha_benchmark)
-          r_to_zr(d_to_r(d33, n1 = n1, n2 = n2)[["r"]])[[1]]
-        } else {
-          if (is.na(n) || n < 4) return(NA_real_)
-          power.z.test(power = power, n = n-3, type = "one.sample",
-                       sig.level = alpha_benchmark, alternative = "one.sided")$delta
-        }
-      }, effectsize=df$effectsize, n1=n1_o, n2=n2_o, n=df$n_o)
-      es_with_33power <- as.numeric(es_with_33power)
-
-      p_telescopes <- pnorm((df$es_r - es_with_33power) / df$se_r, mean=0, sd=1, lower.tail=TRUE)
-      outcome_detailed <- ifelse(p_telescopes >= alpha,
-                                 "original study had >= 33% power to detect replication effect",
-                                 "original study had < 33% power to detect replication effect")
-      quant_val <- p_telescopes
+    if (reported_cor || reported_z) {
+      bench_r <- function(n) {
+        if (is.na(n) || !is.finite(n) || n < 4) return(NA_real_)
+        tryCatch(pwr::pwr.r.test(n = n, power = power, sig.level = alpha_benchmark,
+                                 alternative = "greater")$r,
+                 error = function(e) NA_real_)
+      }
+      lb <- if (reported_cor) df$repli_conv_r_lb else df$es_lb_r
+      ub <- if (reported_cor) df$repli_conv_r_ub else df$es_ub_r
+      has_rep <- !is.na(lb) | !is.na(ub)
+      if (any(has_rep)) {
+        small_effect <- vapply(df$n_o, bench_r, numeric(1))
+        if (reported_z) small_effect <- atanh(small_effect)
+        ci <- rescale_ci(lb, ub, df$es_r, alpha = alpha, on_z = reported_z)
+        ci <- fill_ci(ci, df$es_r, df$se_r, alpha)   # a single missing side
+        # upper limit of the replication CI in the direction of the original
+        upper_oriented <- ifelse(flip == 1, ci$upper, -ci$lower)
+        hit[has_rep] <- (upper_oriented > small_effect)[has_rep]
+        quant_val[has_rep] <- small_effect[has_rep]
+      }
     }
 
-    outcome <- ifelse(outcome_detailed == "original study had >= 33% power to detect replication effect",
-                      "Replication success", "Replication failure")
+    outcome_detailed <- ifelse(is.na(hit), NA_character_,
+                               ifelse(hit,
+                                      "original study had >= 33% power to detect replication effect",
+                                      "original study had < 33% power to detect replication effect"))
+    outcome <- ifelse(is.na(hit), NA_character_,
+                      ifelse(hit, "Replication success", "Replication failure"))
 
     data.frame(outcome=outcome, outcome_detailed=outcome_detailed, quantitative_value = quant_val)
   }

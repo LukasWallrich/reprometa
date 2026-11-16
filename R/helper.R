@@ -295,6 +295,15 @@ rescale_ci <- function(lb, ub, est, alpha, on_z = FALSE, ref_alpha = 0.025) {
   if (on_z) list(lower = lo, upper = hi) else list(lower = tanh(lo), upper = tanh(hi))
 }
 
+# Fill missing reported limits with the computed (1 - 2 alpha) CI ----
+# Rows (or single sides) without reported limits fall back to est -/+ z * se,
+# so that a partly missing column of reported CIs does not turn those rows into NA.
+fill_ci <- function(ci, est, se, alpha) {
+  comp <- compute_ci(est, se, alpha = alpha)
+  pick <- function(rep, alt) if (is.null(rep)) alt else ifelse(is.na(rep), alt, rep)
+  list(lower = pick(ci$lower, comp$lower), upper = pick(ci$upper, comp$upper))
+}
+
 # Back-transform a Fisher-z effect size + SE to the correlation scale ----
 # (delta method: d/dz tanh(z) = 1 - tanh(z)^2)
 fisherz_to_r <- function(z, se_z){
