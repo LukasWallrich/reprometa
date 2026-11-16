@@ -44,7 +44,8 @@ d_to_r <- function(d, se_d, n1=NULL, n2=NULL){
   stopifnot(!missing(d), is.numeric(d))
 
   if (!missing(n1) & !missing(n2)){
-    a <- (n1 + n2 - 2)^2 / ((n1)*(n2))
+    # Borenstein et al. (2009), eq. 7.5; equals 4 for equal group sizes
+    a <- (n1 + n2)^2 / ((n1)*(n2))
   } else{
     a <- 4
   }
