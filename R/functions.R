@@ -571,6 +571,18 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
 #'   when `calibrated = TRUE`, `"BF_JZS"`, `"BF_meta"` and `"BFs"`). The overall T1E rate
 #'   targeted by the calibrated versions is `alpha^2`. Default 0.025.
 #'   Family 2 metrics keep their own conventional levels.
+#' @param use_pattern How to use a qualitative pattern flag
+#'   (`repli_pattern_criteria_met`, from `prepare_effect_sizes(pattern_met =)`)
+#'   when it is present. `"default"` keeps the current behaviour: the flag is
+#'   an additional success requirement for the significance criterion,
+#'   meta-analysis, sum of p-values, sceptical p-value and replication Bayes
+#'   factor only. `"none"` ignores the flag (these metrics then use the signs
+#'   of the estimates or `same_direction`). `"all"` additionally recodes a
+#'   success as a failure for every metric when the flag is `FALSE`. Missing
+#'   flags do not block success on the Fisher-\eqn{z} scale. On
+#'   `scale = "cor"` (the SCORE reproduction setting) the significance
+#'   criterion and meta-analysis ignore the flag under `"default"`, and the sum
+#'   of p-values and sceptical p-value return `NA` for a missing flag.
 #' @param metric_args Optional named list with one element per metric, each a
 #'   named list of arguments that replace that metric's defaults, e.g.
 #'   `list(BFe = list(gamma = 3), consistency_pi = list(alpha = 0.05))`.
@@ -692,7 +704,12 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
 #'   )
 #' )
 assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.025,
-                                       metric_args = NULL) {
+                                       metric_args = NULL,
+                                       use_pattern = c("default", "none", "all")) {
+
+  use_pattern <- match.arg(use_pattern)
+  pattern_flag <- if ("repli_pattern_criteria_met" %in% names(df)) df$repli_pattern_criteria_met else NULL
+  if (use_pattern == "none") df$repli_pattern_criteria_met <- NULL
 
   # `calibrated = TRUE` switches conventional thresholds that do NOT control
   # the overall T1E rate at alpha^2 (default 0.025^2)
@@ -1307,10 +1324,12 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
     ### Success criterion
 
     # `bayes_rep <- repli_pattern_criteria_met & r_bf < 1`
+    # A missing flag falls back to sign agreement instead of giving NA
+    sign_match <- sign(df$es_o) == sign(df$es_r)
     pattern_met <- if ("repli_pattern_criteria_met" %in% names(df)) {
-      df$repli_pattern_criteria_met
+      ifelse(is.na(df$repli_pattern_criteria_met), sign_match, df$repli_pattern_criteria_met)
     } else {
-      sign(df$es_o) == sign(df$es_r)
+      sign_match
     }
 
     success <- !is.na(BFr) & !is.na(pattern_met) & (BFr > gamma) & pattern_met
@@ -2034,6 +2053,12 @@ assess_replication_outcome <- function(df, metric, calibrated = TRUE, alpha = 0.
 
   results <- lapply(metric, function(m) {
     res <- do.call(metric_fns[[m]], c(list(df), metric_args[[m]]))
+    if (use_pattern == "all" && !is.null(pattern_flag)) {
+      block <- pattern_flag %in% FALSE & res$outcome %in% "Replication success"
+      res$outcome[block] <- "Replication failure"
+      res$outcome_detailed[block] <- paste0(res$outcome_detailed[block],
+                                            "; pattern criterion not met")
+    }
     res$study_id <- df$study_id
     res$metric   <- m
     res
