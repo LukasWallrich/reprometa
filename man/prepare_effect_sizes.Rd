@@ -40,7 +40,10 @@ prepare_effect_sizes(
   effective_df_r = NULL,
   effective_sample_size_r = NULL,
   pattern_met = NULL,
-  same_direction = NULL
+  same_direction = NULL,
+  orig_p_value_inexact = c("drop", "bound"),
+  repli_p_value_tails = NULL,
+  orient_by_same_direction = FALSE
 )
 }
 \arguments{
@@ -105,7 +108,7 @@ and the sceptical p-value.}
 
 \item{orig_p_value_type}{Optional character vector describing the reporting
 type of each original-study p-value. When supplied, only values coded as
-`"exact"` are retained.}
+`"exact"` are retained, unless `orig_p_value_inexact = "bound"`.}
 
 \item{orig_p_value_tails}{Optional character vector indicating whether each
 original-study p-value is one- or two-tailed. Reported one-tailed p-values
@@ -141,7 +144,30 @@ effect is in the direction of the original claim (e.g., SCORE's
 `repli_effect_direction`). When supplied, it replaces the sign comparison
 of the estimates in the significance criterion, meta-analysis, sum of
 p-values and sceptical p-value on the Fisher-\eqn{z} scale; the other
-metrics use the signs of the estimates.}
+metrics use the signs of the estimates, unless
+`orient_by_same_direction = TRUE`.}
+
+\item{orig_p_value_inexact}{How to treat original p-values reported as an
+upper bound (`orig_p_value_type == "less-than"`, e.g. "p < .001").
+`"drop"` (default) discards them, so the metrics recompute the evidence
+from the effect estimate and its standard error. `"bound"` keeps the bound
+as a conservative p-value (the true p is smaller). Other non-exact types
+(e.g. `"greater-than"`) are always dropped.}
+
+\item{repli_p_value_tails}{Optional character vector indicating whether each
+replication p-value is one- or two-tailed; one-tailed values are doubled,
+as for `orig_p_value_tails`. Without it, replication p-values are taken
+to be two-tailed.}
+
+\item{orient_by_same_direction}{Logical. If `TRUE` and `same_direction` is
+supplied, the sign of each replication estimate (and of its reported
+confidence limits) is set so that it agrees with the original estimate
+exactly when `same_direction` is `TRUE`. All metrics then use the same
+direction information. Useful when the signs of converted effect sizes do
+not encode the claimed direction (e.g. correlations converted from F or
+chi-squared statistics). Pairs with a zero or missing original estimate,
+a missing replication estimate or a missing `same_direction` are left
+unchanged. Default `FALSE` (estimates are used as supplied).}
 }
 \value{
 A data frame with one row per original–replication pair. It contains
@@ -170,8 +196,7 @@ or transform the estimates to the Fisher-\eqn{z} scale. If test-statistic
 metadata are supplied, standard errors are calculated
 using effective degrees of freedom or effective sample sizes. Without such
 metadata, the Fisher-\eqn{z} standard error of a correlation is
-\eqn{\sqrt{1/n + (6 - r^2)/(2 n^2)}}, a second-order approximation that is
-close to \eqn{1/\sqrt{n - 3}}.
+\eqn{1/\sqrt{n - 3}}.
 
 Standardized mean differences are first converted to correlations and then,
 when `scale = "fisherz"`, to Fisher-\eqn{z} correlations. Log odds ratios
