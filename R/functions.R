@@ -98,11 +98,11 @@ if (!exists("%||%")) `%||%` <- function(x, y) if (is.null(x)) y else x
 #' metadata are supplied, standard errors are calculated
 #' using effective degrees of freedom or effective sample sizes.
 #'
-#' Standardized mean differences are first converted to correlations and then
-#' to Fisher-\eqn{z} correlations. Log odds ratios are converted successively
-#' to standardized mean differences, correlations, and Fisher-\eqn{z}
-#' correlations. Inputs supplied as `"ZCOR"` are retained on their supplied
-#' scale.
+#' Standardized mean differences are first converted to correlations and then,
+#' when `scale = "fisherz"`, to Fisher-\eqn{z} correlations. Log odds ratios
+#' are converted successively to standardized mean differences, correlations,
+#' and (for `scale = "fisherz"`) Fisher-\eqn{z} correlations. Inputs supplied
+#' as `"ZCOR"` are retained on their supplied scale.
 #'
 #' Optional reported confidence intervals, p-values, and pattern indicators
 #' are attached to the resulting data frame.
@@ -223,6 +223,14 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
     list(se = sqrt(1 / n + (6 - r^2) / (2 * n^2)), src = "n")
   }
 
+  # Cohen's d (and its SE) -> point-biserial r, then Fisher z unless scale = "cor"
+  d_to_analysis_scale <- function(d, se_d, n1, n2, scale) {
+    r <- d_to_r(d, se_d, n1 = n1, n2 = n2)
+    if (scale == "cor") return(c(es = r[["r"]], se = r[["Std. Err."]]))
+    z <- r_to_zr(r[["r"]], r[["Std. Err."]])
+    c(es = z[["Fisher Z correlation"]], se = z[["Std. Err."]])
+  }
+
   # Checks if the SE-adjustment metadata supplied at all (e.g., if provided p-values are two-sided resp. one-sided they need to be adjusted)
   have_se_meta <- !is.null(stat_type_o) || !is.null(stat_type_r) ||
     !is.null(dof_o) || !is.null(dof_r) ||
@@ -281,14 +289,10 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
           is.null(n1_o) || is.null(n2_o) || is.null(n1_r) || is.null(n2_r))
         stop("effectsize 'SMD' requires d_o, d_r, se_o, se_r, n1_o, n2_o, n1_r, n2_r - missing for study ", i)
 
-      es_o_i <- r_to_zr(d_to_r(d_o[i], se_o[i], n1=n1_o[i], n2=n2_o[i])[1],
-                        d_to_r(d_o[i], se_o[i], n1=n1_o[i], n2=n2_o[i])[2])[["Fisher Z correlation"]]
-      es_r_i <- r_to_zr(d_to_r(d_r[i], se_r[i], n1=n1_r[i], n2=n2_r[i])[1],
-                        d_to_r(d_r[i], se_r[i], n1=n1_r[i], n2=n2_r[i])[2])[["Fisher Z correlation"]]
-      se_o_i <- r_to_zr(d_to_r(d_o[i], se_o[i], n1=n1_o[i], n2=n2_o[i])[1],
-                        d_to_r(d_o[i], se_o[i], n1=n1_o[i], n2=n2_o[i])[2])[["Std. Err."]]
-      se_r_i <- r_to_zr(d_to_r(d_r[i], se_r[i], n1=n1_r[i], n2=n2_r[i])[1],
-                        d_to_r(d_r[i], se_r[i], n1=n1_r[i], n2=n2_r[i])[2])[["Std. Err."]]
+      conv_o <- d_to_analysis_scale(d_o[i], se_o[i], n1_o[i], n2_o[i], scale)
+      conv_r <- d_to_analysis_scale(d_r[i], se_r[i], n1_r[i], n2_r[i], scale)
+      es_o_i <- conv_o[["es"]]; se_o_i <- conv_o[["se"]]
+      es_r_i <- conv_r[["es"]]; se_r_i <- conv_r[["se"]]
 
       data.frame(es_o=es_o_i, se_o=se_o_i, es_r=es_r_i, se_r=se_r_i,
                  n_o=n1_o[i]+n2_o[i], n_r=n1_r[i]+n2_r[i],
@@ -305,14 +309,10 @@ prepare_effect_sizes <- function(r_o=NULL, n_o=NULL, r_r=NULL, n_r=NULL,
       se_o_i <- logor_to_d(logor=logor_o[i], se_logor=se_o[i])[["Std. Err."]]
       se_r_i <- logor_to_d(logor=logor_r[i], se_logor=se_r[i])[["Std. Err."]]
 
-      es_o_i <- r_to_zr(d_to_r(d_o_i, se_o_i, n1=n1_o[i], n2=n2_o[i])[1],
-                        d_to_r(d_o_i, se_o_i, n1=n1_o[i], n2=n2_o[i])[2])[["Fisher Z correlation"]]
-      es_r_i <- r_to_zr(d_to_r(d_r_i, se_r_i, n1=n1_r[i], n2=n2_r[i])[1],
-                        d_to_r(d_r_i, se_r_i, n1=n1_r[i], n2=n2_r[i])[2])[["Fisher Z correlation"]]
-      se_o_i <- r_to_zr(d_to_r(d_o_i, se_o_i, n1=n1_o[i], n2=n2_o[i])[1],
-                        d_to_r(d_o_i, se_o_i, n1=n1_o[i], n2=n2_o[i])[2])[["Std. Err."]]
-      se_r_i <- r_to_zr(d_to_r(d_r_i, se_r_i, n1=n1_r[i], n2=n2_r[i])[1],
-                        d_to_r(d_r_i, se_r_i, n1=n1_r[i], n2=n2_r[i])[2])[["Std. Err."]]
+      conv_o <- d_to_analysis_scale(d_o_i, se_o_i, n1_o[i], n2_o[i], scale)
+      conv_r <- d_to_analysis_scale(d_r_i, se_r_i, n1_r[i], n2_r[i], scale)
+      es_o_i <- conv_o[["es"]]; se_o_i <- conv_o[["se"]]
+      es_r_i <- conv_r[["es"]]; se_r_i <- conv_r[["se"]]
 
       data.frame(es_o=es_o_i, se_o=se_o_i, es_r=es_r_i, se_r=se_r_i,
                  n_o=n1_o[i]+n2_o[i], n_r=n1_r[i]+n2_r[i],
