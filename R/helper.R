@@ -295,6 +295,15 @@ rescale_ci <- function(lb, ub, est, alpha, on_z = FALSE, ref_alpha = 0.025) {
   if (on_z) list(lower = lo, upper = hi) else list(lower = tanh(lo), upper = tanh(hi))
 }
 
+# Fill missing reported limits with the computed (1 - 2 alpha) CI ----
+# Rows (or single sides) without reported limits fall back to est -/+ z * se,
+# so that a partly missing column of reported CIs does not turn those rows into NA.
+fill_ci <- function(ci, est, se, alpha) {
+  comp <- compute_ci(est, se, alpha = alpha)
+  pick <- function(rep, alt) if (is.null(rep)) alt else ifelse(is.na(rep), alt, rep)
+  list(lower = pick(ci$lower, comp$lower), upper = pick(ci$upper, comp$upper))
+}
+
 # Back-transform a Fisher-z effect size + SE to the correlation scale ----
 # (delta method: d/dz tanh(z) = 1 - tanh(z)^2)
 fisherz_to_r <- function(z, se_z){
@@ -355,7 +364,10 @@ find_z_for_power <- function(power, n1, n2, alpha=0.025){
 
 
 # Snapshot Hybrid. Code was taken from original authors and readapted for our needs.
-hybrid_snap <- function(es, se, alpha=0.025, sm=0.1, me=0.3, la=0.5) {
+# `priors`: prior probabilities of the null, small, medium and large effect
+# models (equal by default, as in van Aert and van Assen, 2017).
+hybrid_snap <- function(es, se, alpha=0.025, sm=0.1, me=0.3, la=0.5,
+                        priors = rep(0.25, 4)) {
   # Stop if the inputs are not a vector length 2 (original, replication)
   stopifnot(length(es) == 2, length(se) == 2)
 
@@ -381,8 +393,10 @@ hybrid_snap <- function(es, se, alpha=0.025, sm=0.1, me=0.3, la=0.5) {
                  stats::pnorm(ycvi[1],fis.la,se[1], lower.tail=FALSE, log.p = TRUE)) +
     stats::dnorm(es[2],fis.la,se[2], log = TRUE)
 
-  logs <- c(log_f.0, log_f.sm, log_f.me, log_f.la)
-  if (any(!is.finite(logs))) {
+  loglik <- c(log_f.0, log_f.sm, log_f.me, log_f.la)
+  # a zero prior excludes its model (log prior -Inf, posterior 0)
+  logs <- loglik + log(priors)
+  if (any(!is.finite(loglik)) || !any(is.finite(logs))) {
     return(data.frame(
       p.0  = NA_real_,
       p.sm = NA_real_,
@@ -392,7 +406,7 @@ hybrid_snap <- function(es, se, alpha=0.025, sm=0.1, me=0.3, la=0.5) {
   }
 
   # Shift by max to avoid overflow/underflow, then normalise
-  m     <- max(logs)
+  m     <- max(logs[is.finite(logs)])
   probs <- exp(logs - m)
   probs <- probs / sum(probs)
 
@@ -483,8 +497,8 @@ hybrid_snap <- function(es, se, alpha=0.025, sm=0.1, me=0.3, la=0.5) {
 #' @examples
 #' calibrate_threshold("BF_JZS", alpha = 0.025)             # 1.60
 #' calibrate_threshold("BF_meta", alpha = 0.025)            # 23.7
-#' calibrate_threshold("BFs", alpha = c(0.01, 0.025, 0.05)) # 4.38 2.81 1.98 (c = 1)
-#' calibrate_threshold("BFs", alpha = 0.025, c = c(0.25, 1, 4)) # 3.57 2.81 1.58
+#' calibrate_threshold("BFs", alpha = c(0.01, 0.025, 0.05)) # 3.71 2.36 1.65 (c = 1)
+#' calibrate_threshold("BFs", alpha = 0.025, c = c(0.25, 1, 4)) # 2.95 2.36 1.42
 calibrate_threshold <- function(metric = c("significance_agg", "sum_p", "BF_JZS", "BF_meta", "BFs"),
                                 alpha = 0.025, c = 1) {
   metric <- match.arg(metric)

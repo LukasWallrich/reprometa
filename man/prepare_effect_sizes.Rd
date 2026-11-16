@@ -135,6 +135,13 @@ calculations.}
 replication result satisfies the qualitative direction or pattern
 criterion. When unavailable, metrics requiring this information may use a
 sign-agreement approximation.}
+
+\item{same_direction}{Optional logical vector, `TRUE` if the replication
+effect is in the direction of the original claim (e.g., SCORE's
+`repli_effect_direction`). When supplied, it replaces the sign comparison
+of the estimates in the significance criterion, meta-analysis, sum of
+p-values and sceptical p-value on the Fisher-\eqn{z} scale; the other
+metrics use the signs of the estimates.}
 }
 \value{
 A data frame with one row per original–replication pair. It contains
@@ -161,13 +168,16 @@ ratios, and precomputed Fisher-\eqn{z} correlations.
 For correlation inputs, the function can retain the raw correlation scale
 or transform the estimates to the Fisher-\eqn{z} scale. If test-statistic
 metadata are supplied, standard errors are calculated
-using effective degrees of freedom or effective sample sizes.
+using effective degrees of freedom or effective sample sizes. Without such
+metadata, the Fisher-\eqn{z} standard error of a correlation is
+\eqn{\sqrt{1/n + (6 - r^2)/(2 n^2)}}, a second-order approximation that is
+close to \eqn{1/\sqrt{n - 3}}.
 
-Standardized mean differences are first converted to correlations and then
-to Fisher-\eqn{z} correlations. Log odds ratios are converted successively
-to standardized mean differences, correlations, and Fisher-\eqn{z}
-correlations. Inputs supplied as `"ZCOR"` are retained on their supplied
-scale.
+Standardized mean differences are first converted to correlations and then,
+when `scale = "fisherz"`, to Fisher-\eqn{z} correlations. Log odds ratios
+are converted successively to standardized mean differences, correlations,
+and (for `scale = "fisherz"`) Fisher-\eqn{z} correlations. Inputs supplied
+as `"ZCOR"` are retained on their supplied scale.
 
 Optional reported confidence intervals, p-values, and pattern indicators
 are attached to the resulting data frame.

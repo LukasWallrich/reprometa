@@ -49,11 +49,11 @@ comparisons across different metrics and study pairs.
 prepared_data <- 
   prepare_effect_sizes(r_o = df$ro, n_o = df$no,
                        r_r = df$rr, n_r = df$nr,
-                       logor_o = df$fiso, logor_r = df$fisr,
+                       # the last 30 pairs are supplied as precomputed
+                       # Fisher-z correlations with their standard errors
+                       z_o = df$fiso, z_r = df$fisr,
                        se_o = df$se_fiso, se_r = df$se_fisr,
-                       n1_o = df$no, n2_o = df$no,
-                       n1_r = df$nr, n2_r = df$nr,
-                       effectsize = c(rep("COR", 43), rep("LOGOR", 30)))
+                       effectsize = c(rep("COR", 43), rep("ZCOR", 30)))
 
 # Step 2: assess
 results <- 
