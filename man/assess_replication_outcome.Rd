@@ -9,7 +9,8 @@ assess_replication_outcome(
   metric,
   calibrated = TRUE,
   alpha = 0.025,
-  metric_args = NULL
+  metric_args = NULL,
+  use_pattern = c("default", "none", "all")
 )
 }
 \arguments{
@@ -133,10 +134,31 @@ are:
   \item{`minimum_effect`}{`h` (default `NULL`, i.e.
     (1 - `shrinkage`) times the original effect), `shrinkage`
     (default 0.25), `alpha` (default 0.025).}
+  \item{`significance_agg`}{`method`: `"stouffer"` (default, unweighted
+    Stouffer combination of the one-sided z-values) or `"iv"`
+    (inverse-variance fixed-effect pooled estimate tested at
+    \eqn{z_{1-\alpha^2}}, using `same_direction` when supplied); used
+    when `calibrated = TRUE`. For a pre-specified direction, the overall
+    T1E rate is \eqn{\alpha^2} for Stouffer and at most \eqn{\alpha^2}
+    for `"iv"`; because the direction is taken from the observed original
+    estimate, the unconditional rate is at most \eqn{2\alpha^2}.}
   \item{`significance_r`, `significance_agg`, `sum_p`, `pScept`}{`alpha`
     (default: the `alpha` argument above, which is the recommended way
     to change it); `sum_p` also takes `threshold`.}
 }}
+
+\item{use_pattern}{How to use a qualitative pattern flag
+(`repli_pattern_criteria_met`, from `prepare_effect_sizes(pattern_met =)`)
+when it is present. `"default"` keeps the current behaviour: the flag is
+an additional success requirement for the significance criterion,
+meta-analysis, sum of p-values, sceptical p-value and replication Bayes
+factor only. `"none"` ignores the flag (these metrics then use the signs
+of the estimates or `same_direction`). `"all"` additionally recodes a
+success as a failure for every metric when the flag is `FALSE`. Missing
+flags do not block success on the Fisher-\eqn{z} scale. On
+`scale = "cor"` (the SCORE reproduction setting) the significance
+criterion and meta-analysis ignore the flag under `"default"`, and the sum
+of p-values and sceptical p-value return `NA` for a missing flag.}
 }
 \value{
 A named list with two data frames:
